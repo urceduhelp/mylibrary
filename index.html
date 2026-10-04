@@ -12,21 +12,35 @@
 body{margin:0;font-family:"Noto Sans Sinhala","Iskoola Pota",system-ui,sans-serif;background:var(--bg);color:var(--tx)}
 .wrap{max-width:1000px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:0}
-.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:14px}
 input{width:100%;padding:9px;border:1px solid var(--bd);border-radius:7px;background:var(--bg);color:var(--tx);font:inherit}
 button{padding:7px 12px;border:0;border-radius:7px;background:var(--ac);color:#fff;font:inherit;cursor:pointer}
 button.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
 button.d{background:transparent;color:var(--rd);border:1px solid var(--bd)}
+.tabs{display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--bd)}
+.tabs button{background:transparent;color:var(--mu);border-radius:7px 7px 0 0;padding:9px 16px;border-bottom:3px solid transparent}
+.tabs button.on{color:var(--ac);border-bottom-color:var(--ac);font-weight:bold}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:10px}
 label{font-size:12px;color:var(--mu)}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 #msg{font-size:13px;color:var(--mu);margin:6px 0}
 .hide{display:none!important}
 #sbar{position:sticky;top:0;z-index:20;margin-bottom:14px}
+.stat{font-size:14px;color:var(--mu);margin:0 0 12px}
+.stat b{color:var(--tx)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px}
+.kpi small{display:block;color:var(--mu);font-size:12px}
+.kpi div{font-size:20px;margin-top:4px;word-break:break-word}
+.kpi span{display:block;font-size:13px;color:var(--mu);margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left}
+td.n,th.n{text-align:right;white-space:nowrap}
+.barx{height:8px;background:var(--ac);border-radius:4px;min-width:2px}
 /* tiles */
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
-.tile{display:flex;flex-direction:column;background:var(--card);border:2px solid;border-radius:6px;overflow:hidden;min-height:230px}
+.tile{display:flex;flex-direction:column;background:var(--card);border:2px solid;border-radius:6px;overflow:hidden;min-height:200px}
 .th{padding:14px 8px;text-align:center;color:#222}
 .tt{font-size:21px;line-height:1.25}
 .tv{font-size:13px;margin-top:2px}
@@ -37,7 +51,7 @@ label{font-size:12px;color:var(--mu)}
 /* popup */
 #pop{position:fixed;left:0;right:0;margin:0 auto;width:calc(100% - 32px);max-width:968px;bottom:16px;z-index:15;
  background:var(--bg);border:1px solid var(--bd);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:flex;flex-direction:column}
-#pop .ph{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bd)}
+#pop .ph{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bd);gap:8px}
 #pop .pb{overflow:auto;padding:14px;flex:1}
 .pager{display:flex;gap:10px;justify-content:center;align-items:center;margin:14px 0 0}
 .warn{background:#fff3cd;color:#5c4400;border:1px solid #e6c34a;border-radius:8px;padding:8px 12px;font-size:14px;margin:8px 0}
@@ -54,18 +68,16 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
 <body>
 <div class="wrap">
 
-<div id="login" class="card hide" style="max-width:380px;margin:60px auto">
-  <h1>පුස්තකාලය — Login</h1><br>
-  <label>Email</label><input id="em" type="email"><br><br>
-  <label>මුරපදය</label><input id="pw" type="password"><br><br>
-  <button onclick="signIn()">ඇතුල් වන්න</button>
-  <div id="lmsg" style="color:var(--rd);font-size:13px;margin-top:8px"></div>
+<div class="bar"><h1>📚 මගේ පුස්තකාලය</h1></div>
+<div class="tabs">
+  <button id="tb_s" class="on" onclick="tab('s')">🔍 සෙවීම</button>
+  <button id="tb_a" onclick="tab('a')">⚙ Admin</button>
 </div>
 
-<div id="app" class="hide">
-  <div class="bar"><h1>📚 මගේ පුස්තකාලය</h1><button class="g" onclick="signOut()">Logout</button></div>
+<!-- ============ SEARCH TAB ============ -->
+<div id="tabS">
+  <p class="stat" id="sstat">...</p>
 
-  <!-- Search bar (sticky) -->
   <div id="sbar" class="card">
     <input id="q" data-sug="q" placeholder="🔍 නම, කතුවරයා, විෂයය, ISBN හෝ පොත් අංකය මගින් සොයන්න..." oninput="onSearch()">
     <div class="row" style="margin-top:8px">
@@ -75,35 +87,57 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
     </div>
   </div>
 
-  <!-- Search popup -->
   <div id="pop" class="hide">
     <div class="ph"><b id="pcnt"></b><button class="g" onclick="closePop()">✕ වසන්න</button></div>
     <div class="pb"><div id="ptiles" class="tiles"></div>
       <div class="pager"><button class="g" onclick="popGo(-1)">← පෙර</button><span id="ppg"></span><button class="g" onclick="popGo(1)">ඊළඟ →</button></div></div>
   </div>
 
-  <!-- Add form -->
-  <div class="card">
-    <b>නව පොතක් ඇතුළත් කරන්න</b>
-    <div class="grid" id="addf" style="margin-top:10px"></div>
-    <div id="dup" class="warn hide"></div>
-    <div class="row">
-      <button onclick="addBook()">සුරකින්න</button>
-      <button class="g" onclick="resetAdd()">හිස් කරන්න</button>
-      <span style="flex:1"></span>
-      <label class="row" style="font-size:13px">CSV Import:&nbsp;<input type="file" id="csv" accept=".csv,.tsv,.txt" style="width:auto" onchange="importCSV(this.files[0])"></label>
-    </div>
-    <div id="msg"></div>
-  </div>
-
-  <!-- All books -->
-  <div class="row" style="justify-content:space-between;margin-bottom:8px"><b id="cnt">සියලු පොත්</b></div>
-  <div id="tiles" class="tiles"></div>
+  <b>සියලු පොත්</b>
+  <div id="tiles" class="tiles" style="margin-top:8px"></div>
   <div class="pager"><button class="g" onclick="go(-1)">← පෙර</button><span id="pg"></span><button class="g" onclick="go(1)">ඊළඟ →</button></div>
 </div>
+
+<!-- ============ ADMIN TAB ============ -->
+<div id="tabA" class="hide">
+
+  <div id="alogin" class="card hide" style="max-width:380px;margin:30px auto">
+    <h1>Admin — Login</h1><br>
+    <label>Email</label><input id="em" type="email"><br><br>
+    <label>මුරපදය</label><input id="pw" type="password" onkeydown="if(event.key==='Enter')signIn()"><br><br>
+    <button onclick="signIn()">ඇතුල් වන්න</button>
+    <div id="lmsg" style="color:var(--rd);font-size:13px;margin-top:8px"></div>
+  </div>
+
+  <div id="apanel" class="hide">
+    <div class="bar"><b>සංඛ්‍යාන</b><button class="g" onclick="signOut()">Logout</button></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="card"><b>විෂයයන් අනුව පොත් ගණන</b>
+      <div style="overflow:auto;margin-top:8px"><table id="subj"></table></div>
+    </div>
+
+    <div class="card">
+      <b>නව පොතක් ඇතුළත් කරන්න</b>
+      <div class="grid" id="addf" style="margin-top:10px"></div>
+      <div id="dup" class="warn hide"></div>
+      <div class="row">
+        <button onclick="addBook()">සුරකින්න</button>
+        <button class="g" onclick="resetAdd()">හිස් කරන්න</button>
+        <span style="flex:1"></span>
+        <label class="row" style="font-size:13px">CSV Import:&nbsp;<input type="file" id="csv" accept=".csv,.tsv,.txt" style="width:auto" onchange="importCSV(this.files[0])"></label>
+      </div>
+      <div id="msg"></div>
+    </div>
+
+    <div class="row" style="margin-bottom:8px"><b id="acnt">සියලු පොත්</b></div>
+    <div id="atiles" class="tiles"></div>
+    <div class="pager"><button class="g" onclick="goA(-1)">← පෙර</button><span id="apg"></span><button class="g" onclick="goA(1)">ඊළඟ →</button></div>
+  </div>
 </div>
 
-<!-- Edit dialog -->
+</div>
+
+<!-- Edit dialog (admin only) -->
 <dialog id="ed">
   <h3 style="margin-top:0">පොත සංස්කරණය</h3>
   <div class="grid" id="editf"></div>
@@ -120,9 +154,8 @@ const FIELDS = [["title","පොතේ නම"],["volume","කොටස (උද�
   ["price","මිල","number"],["isbn","ISBN"],["book_number","පොත් අංකය"],["rack_number","රාක්ක අංකය"],["shelf_number","තට්ටු අංකය"]];
 const F = FIELDS.map(f => f[0]);
 const SIZE = 30, PSIZE = 24;
-let page = 0, popPage = 0, editId = null, timer; const cache = {};
+let page = 0, apage = 0, popPage = 0, editId = null, timer, isAdmin = false; const cache = {};
 
-/* විෂය වර්ණ: මුල් විෂයය අනුව. අවශ්‍ය නම් මෙහි hue (0-360) වෙනස් කරන්න/එකතු කරන්න */
 const HUES = {"ඉතිහාසය":210,"ආගම":30,"විද්‍යාව":150,"මනෝවිද්‍යාව":0,"සාහිත්‍යය":280,"භාෂාව":50};
 function colorOf(subject){
   const first = (subject || "").split(/[\/,|]/)[0].trim();
@@ -133,6 +166,7 @@ function colorOf(subject){
 }
 const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const clean = v => { v = (v ?? "").toString().trim(); return v === "" ? null : v; };
+const money = n => "Rs." + Number(n || 0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
 
 /* forms */
 const fieldsHTML = p => FIELDS.map(([k,l,t]) => `<div><label>${l}</label><input id="${p}${k}" ${t==="number"?"":`data-sug="${k}"`} type="${t||"text"}" ${t==="number"?'step="0.01"':""}></div>`).join("");
@@ -146,16 +180,27 @@ const say = t => $("msg").textContent = t;
 function resetAdd(){ F.forEach(k => $("f_"+k).value = ""); $("dup").classList.add("hide"); }
 const isEmpty = o => Object.values(o).every(v => v === null);
 
-/* auth */
-function show(a){ $("login").classList.toggle("hide", a); $("app").classList.toggle("hide", !a); if(a) load(); }
-async function signIn(){
-  const {error} = await sb.auth.signInWithPassword({email:$("em").value.trim(), password:$("pw").value});
-  if(error) $("lmsg").textContent = error.message; else show(true);
+/* tabs + auth */
+function tab(t){
+  hideSug(); closePop();
+  $("tabS").classList.toggle("hide", t !== "s"); $("tabA").classList.toggle("hide", t !== "a");
+  $("tb_s").classList.toggle("on", t === "s"); $("tb_a").classList.toggle("on", t === "a");
+  if(t === "a") checkAdmin(); else { load(); loadStats(); }
 }
-async function signOut(){ await sb.auth.signOut(); show(false); }
-sb.auth.getSession().then(({data}) => show(!!data.session));
+async function checkAdmin(){
+  const {data} = await sb.auth.getSession();
+  isAdmin = !!data.session;
+  $("alogin").classList.toggle("hide", isAdmin); $("apanel").classList.toggle("hide", !isAdmin);
+  if(isAdmin){ loadA(); loadStats(); }
+}
+async function signIn(){
+  $("lmsg").textContent = "";
+  const {error} = await sb.auth.signInWithPassword({email:$("em").value.trim(), password:$("pw").value});
+  if(error) $("lmsg").textContent = error.message; else { $("pw").value = ""; checkAdmin(); }
+}
+async function signOut(){ await sb.auth.signOut(); isAdmin = false; checkAdmin(); }
 
-/* duplicate check: නම + කොටස සමාන පොත් */
+/* duplicate check */
 const likeEsc = v => v.replace(/[\\%_]/g, "\\$&");
 const locOf = b => [b.book_number && "B-"+b.book_number, b.rack_number && "R-"+b.rack_number, b.shelf_number && "S-"+b.shelf_number].filter(Boolean).join(" | ");
 async function findDups(d, excludeId){
@@ -178,7 +223,7 @@ $("addf").addEventListener("focusin", e => { if(e.target.id !== "f_title" && e.t
 $("f_volume").addEventListener("blur", checkDup);
 ["f_title","f_volume"].forEach(id => $(id).addEventListener("input", () => $("dup").classList.add("hide")));
 
-/* suggestions: අකුරු 2ක් ඇතුළත් කළ පසු */
+/* suggestions */
 const SUG_LABEL = {title:"නම", author:"කතුවරයා", subject:"විෂයය"};
 const sug = document.createElement("div"); sug.id = "sug"; sug.className = "hide"; document.body.appendChild(sug);
 let sugInput = null, sugItems = [], sugIdx = -1, sugTimer, sugSeq = 0, skipSug = false;
@@ -232,7 +277,7 @@ document.addEventListener("focusout", e => { if(e.target === sugInput) hideSug()
 addEventListener("scroll", e => { if(e.target !== sug) hideSug(); }, true);
 addEventListener("resize", hideSug);
 
-/* CRUD */
+/* CRUD (admin) */
 async function addBook(){
   const d = readForm("f_");
   if(isEmpty(d)){ say("අවම වශයෙන් එක් දත්තයක් හෝ ඇතුළත් කරන්න."); return; }
@@ -261,41 +306,79 @@ async function del(id){
   const {error} = await sb.from("books").delete().eq("id", id);
   if(error) alert(error.message); else refresh();
 }
-function refresh(){ load(); if(!$("pop").classList.contains("hide")) loadPop(); }
+function refresh(){ loadA(); loadStats(); load(); }
 
-/* tile */
-function tile(b){
+/* tile (edit/delete only in admin) */
+function tile(b, adm){
   cache[b.id] = b; const c = colorOf(b.subject);
-  const loc = [b.book_number && "B-"+b.book_number, b.rack_number && "R-"+b.rack_number, b.shelf_number && "S-"+b.shelf_number].filter(Boolean).join(" | ");
-  const price = b.price !== null && b.price !== undefined ? "Rs." + Number(b.price).toFixed(2) : "";
+  const loc = locOf(b);
+  const price = b.price !== null && b.price !== undefined ? money(b.price) : "";
   return `<div class="tile" style="border-color:${c.bd}">
     <div class="th" style="background:${c.bg}"><div class="tt">${esc(b.title) || "(නම නැත)"}</div>${b.volume ? `<div class="tv">${esc(b.volume)}</div>` : ""}</div>
     <div class="tb">${b.author ? `<div>${esc(b.author)}</div><hr style="border-color:${c.bd}">` : ""}
       ${b.subject ? `<div>${esc(b.subject)}</div>` : ""}${b.isbn ? `<div>ISBN ${esc(b.isbn)}</div>` : ""}${loc ? `<div><b>${esc(loc)}</b></div>` : ""}</div>
-    <div class="tf"><span>${price}</span><span class="row"><button class="g" onclick="openEdit(${b.id})">Ed</button><button class="d" onclick="del(${b.id})">Dlt</button></span></div></div>`;
+    <div class="tf"><span>${price}</span>${adm ? `<span class="row"><button class="g" onclick="openEdit(${b.id})">Ed</button><button class="d" onclick="del(${b.id})">Dlt</button></span>` : ""}</div></div>`;
 }
 
 /* queries */
+function applyFilter(qb){
+  const q = $("q").value.replace(/[,()%*]/g, " ").trim();
+  const rk = clean($("fr").value), sh = clean($("fs").value);
+  if(q) qb = qb.or(["title","author","subject","isbn","book_number"].map(c => `${c}.ilike.%${q}%`).join(","));
+  if(rk) qb = qb.ilike("rack_number", rk.replace(/[%*_]/g, ""));
+  if(sh) qb = qb.ilike("shelf_number", sh.replace(/[%*_]/g, ""));
+  return qb;
+}
 async function fetchBooks(p, size, filtered){
   let qb = sb.from("books").select("*", {count:"exact"}).range(p*size, p*size + size - 1);
   if(filtered){
-    const q = $("q").value.replace(/[,()%*]/g, " ").trim();
-    const rk = clean($("fr").value), sh = clean($("fs").value);
-    if(q) qb = qb.or(["title","author","subject","isbn","book_number"].map(c => `${c}.ilike.%${q}%`).join(","));
-    if(rk) qb = qb.ilike("rack_number", rk.replace(/[%*_]/g, ""));
-    if(sh) qb = qb.ilike("shelf_number", sh.replace(/[%*_]/g, ""));
-    qb = (rk || sh) ? qb.order("rack_number").order("shelf_number").order("book_number") : qb.order("id", {ascending:false});
+    qb = applyFilter(qb);
+    qb = (clean($("fr").value) || clean($("fs").value)) ? qb.order("rack_number").order("shelf_number").order("book_number") : qb.order("id", {ascending:false});
   } else qb = qb.order("id", {ascending:false});
   return qb;
 }
 async function load(){
-  const {data, count, error} = await fetchBooks(page, SIZE, false);
-  if(error){ say(error.message); return; }
-  $("cnt").textContent = `සියලු පොත් (${count ?? 0}) — අලුත්ම ඒවා මුලින්`;
+  const {data, error} = await fetchBooks(page, SIZE, false);
+  if(error){ $("sstat").textContent = error.message; return; }
   $("pg").textContent = "පිටුව " + (page+1);
-  $("tiles").innerHTML = data.map(tile).join("") || `<div style="color:var(--mu)">පොත් නැත</div>`;
+  $("tiles").innerHTML = data.map(b => tile(b, false)).join("") || `<div style="color:var(--mu)">පොත් නැත</div>`;
 }
 function go(n){ if(page + n < 0) return; page += n; load(); }
+async function loadA(){
+  const {data, count, error} = await fetchBooks(apage, SIZE, false);
+  if(error){ $("acnt").textContent = error.message; return; }
+  $("acnt").textContent = `සියලු පොත් (${count ?? 0}) — අලුත්ම ඒවා මුලින්`;
+  $("apg").textContent = "පිටුව " + (apage+1);
+  $("atiles").innerHTML = data.map(b => tile(b, true)).join("") || `<div style="color:var(--mu)">පොත් නැත</div>`;
+}
+function goA(n){ if(apage + n < 0) return; apage += n; loadA(); }
+
+/* statistics */
+async function loadStats(){
+  const rows = [];
+  for(let p = 0; ; p++){
+    const {data, error} = await sb.from("books").select("id,title,volume,price,subject").order("id").range(p*1000, p*1000 + 999);
+    if(error){ $("sstat").textContent = error.message; return; }
+    rows.push(...data); if(data.length < 1000) break;
+  }
+  const total = rows.reduce((s, r) => s + (Number(r.price) || 0), 0);
+  $("sstat").innerHTML = `පොත් ගණන: <b>${rows.length}</b> &nbsp;·&nbsp; සමස්ත වටිනාකම: <b>${money(total)}</b>`;
+  if(!isAdmin) return;
+  let top = null; rows.forEach(r => { if(r.price != null && (!top || Number(r.price) > Number(top.price))) top = r; });
+  $("kpis").innerHTML =
+    `<div class="kpi"><small>පොත් ගණන</small><div>${rows.length}</div></div>
+     <div class="kpi"><small>සමස්ත වටිනාකම</small><div>${money(total)}</div></div>
+     <div class="kpi"><small>වැඩිම වටිනා පොත</small><div>${top ? esc(top.title || "(නම නැත)") : "—"}</div>${top ? `<span>${top.volume ? esc(top.volume) + " — " : ""}${money(top.price)}</span>` : ""}</div>`;
+  const m = {};
+  rows.forEach(r => {
+    const parts = [...new Set(String(r.subject || "").split("/").map(x => x.trim()).filter(Boolean))];
+    (parts.length ? parts : ["(විෂයය නැත)"]).forEach(s => { m[s] = m[s] || {n:0, v:0}; m[s].n++; m[s].v += Number(r.price) || 0; });
+  });
+  const list = Object.entries(m).sort((a, b) => b[1].n - a[1].n), max = list.length ? list[0][1].n : 1;
+  $("subj").innerHTML = `<tr><th>විෂයය</th><th class="n">පොත් ගණන</th><th class="n">වටිනාකම</th><th style="width:30%"></th></tr>` +
+    list.map(([s, o]) => `<tr><td>${esc(s)}</td><td class="n">${o.n}</td><td class="n">${money(o.v)}</td><td><div class="barx" style="width:${Math.max(2, o.n / max * 100)}%"></div></td></tr>`).join("") +
+    `<tr><td colspan="4" style="color:var(--mu);font-size:12px;border:0">* විෂයයන් කිහිපයක් (/) ඇති පොතක් එක් එක් විෂයය යටතේ ගණන් ගනී.</td></tr>`;
+}
 
 /* search popup */
 const hasSearch = () => $("q").value.trim() || $("fr").value.trim() || $("fs").value.trim();
@@ -304,12 +387,22 @@ function placePop(){ $("pop").style.top = ($("sbar").getBoundingClientRect().bot
 function openPop(){ $("pop").classList.remove("hide"); placePop(); loadPop(); }
 function closePop(){ $("pop").classList.add("hide"); }
 function clearSearch(){ $("q").value = $("fr").value = $("fs").value = ""; closePop(); }
+async function popSum(){
+  let s = 0;
+  for(let p = 0; ; p++){
+    const {data} = await applyFilter(sb.from("books").select("price")).order("id").range(p*1000, p*1000 + 999);
+    if(!data) break; data.forEach(r => s += Number(r.price) || 0); if(data.length < 1000) break;
+  }
+  return s;
+}
 async function loadPop(){
   const {data, count, error} = await fetchBooks(popPage, PSIZE, true);
   if(error){ $("pcnt").textContent = error.message; return; }
   $("pcnt").textContent = `සෙවුම් ප්‍රතිඵල: ${count ?? 0}`;
   $("ppg").textContent = "පිටුව " + (popPage+1);
-  $("ptiles").innerHTML = data.map(tile).join("") || `<div style="color:var(--mu)">කිසිවක් නැත</div>`;
+  $("ptiles").innerHTML = data.map(b => tile(b, false)).join("") || `<div style="color:var(--mu)">කිසිවක් නැත</div>`;
+  const s = await popSum();
+  if(!$("pop").classList.contains("hide")) $("pcnt").textContent = `සෙවුම් ප්‍රතිඵල: ${count ?? 0} — වටිනාකම: ${money(s)}`;
 }
 function popGo(n){ if(popPage + n < 0) return; popPage += n; loadPop(); }
 addEventListener("resize", () => { if(!$("pop").classList.contains("hide")) placePop(); });
@@ -355,8 +448,11 @@ async function importCSV(file){
     if(error){ say("Import දෝෂය: " + error.message); return; }
     say(`Import කරමින්... ${Math.min(i+500, fresh.length)} / ${fresh.length}`);
   }
-  say(`පොත් ${fresh.length}ක් Import කළා ✔` + (skipped ? ` (නම සහ කොටස සමාන නිසා ${skipped}ක් මඟ හැරියා)` : "")); $("csv").value = ""; load();
+  say(`පොත් ${fresh.length}ක් Import කළා ✔` + (skipped ? ` (නම සහ කොටස සමාන නිසා ${skipped}ක් මඟ හැරියා)` : "")); $("csv").value = ""; refresh();
 }
+
+/* start */
+load(); loadStats();
 </script>
 </body>
 </html>
