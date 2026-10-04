@@ -43,6 +43,10 @@ label{font-size:12px;color:var(--mu)}
 .warn{background:#fff3cd;color:#5c4400;border:1px solid #e6c34a;border-radius:8px;padding:8px 12px;font-size:14px;margin:8px 0}
 .warn div{margin-top:4px}
 .warn button{padding:1px 8px;font-size:12px;color:#5c4400;border-color:#c9a53a}
+#sug{position:fixed;z-index:60;background:var(--card);border:1px solid var(--bd);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.3);max-height:260px;overflow:auto}
+#sug div{padding:7px 10px;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;gap:10px}
+#sug div.on,#sug div:hover{background:var(--bg)}
+#sug small{color:var(--mu)}
 dialog{border:1px solid var(--bd);border-radius:12px;background:var(--card);color:var(--tx);width:min(560px,92vw)}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 </style>
@@ -63,10 +67,10 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
 
   <!-- Search bar (sticky) -->
   <div id="sbar" class="card">
-    <input id="q" placeholder="🔍 නම, කතුවරයා, විෂයය, ISBN හෝ පොත් අංකය මගින් සොයන්න..." oninput="onSearch()">
+    <input id="q" data-sug="q" placeholder="🔍 නම, කතුවරයා, විෂයය, ISBN හෝ පොත් අංකය මගින් සොයන්න..." oninput="onSearch()">
     <div class="row" style="margin-top:8px">
-      <input id="fr" placeholder="රාක්ක අංකය" oninput="onSearch()" style="width:140px">
-      <input id="fs" placeholder="තට්ටු අංකය" oninput="onSearch()" style="width:140px">
+      <input id="fr" data-sug="rack_number" placeholder="රාක්ක අංකය" oninput="onSearch()" style="width:140px">
+      <input id="fs" data-sug="shelf_number" placeholder="තට්ටු අංකය" oninput="onSearch()" style="width:140px">
       <button class="g" onclick="clearSearch()">හිස් කරන්න</button>
     </div>
   </div>
@@ -131,7 +135,7 @@ const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":
 const clean = v => { v = (v ?? "").toString().trim(); return v === "" ? null : v; };
 
 /* forms */
-const fieldsHTML = p => FIELDS.map(([k,l,t]) => `<div><label>${l}</label><input id="${p}${k}" type="${t||"text"}" ${t==="number"?'step="0.01"':""}></div>`).join("");
+const fieldsHTML = p => FIELDS.map(([k,l,t]) => `<div><label>${l}</label><input id="${p}${k}" ${t==="number"?"":`data-sug="${k}"`} type="${t||"text"}" ${t==="number"?'step="0.01"':""}></div>`).join("");
 $("addf").innerHTML = fieldsHTML("f_"); $("editf").innerHTML = fieldsHTML("e_");
 function readForm(p){
   const o = {}; F.forEach(k => o[k] = clean($(p+k).value));
@@ -173,6 +177,60 @@ async function checkDup(){ showDup(await findDups(readForm("f_"))); }
 $("addf").addEventListener("focusin", e => { if(e.target.id !== "f_title" && e.target.id !== "f_volume") checkDup(); });
 $("f_volume").addEventListener("blur", checkDup);
 ["f_title","f_volume"].forEach(id => $(id).addEventListener("input", () => $("dup").classList.add("hide")));
+
+/* suggestions: අකුරු 2ක් ඇතුළත් කළ පසු */
+const SUG_LABEL = {title:"නම", author:"කතුවරයා", subject:"විෂයය"};
+const sug = document.createElement("div"); sug.id = "sug"; sug.className = "hide"; document.body.appendChild(sug);
+let sugInput = null, sugItems = [], sugIdx = -1, sugTimer, sugSeq = 0, skipSug = false;
+document.querySelectorAll("[data-sug]").forEach(i => i.autocomplete = "off");
+const sugOpen = () => !sug.classList.contains("hide");
+function hideSug(){ sug.classList.add("hide"); sugItems = []; sugIdx = -1; }
+const sugTerm = inp => inp.dataset.sug === "subject" ? inp.value.split("/").pop().trim() : inp.value.trim();
+async function sugFetch(inp){
+  const key = inp.dataset.sug, term = sugTerm(inp);
+  if([...term].length < 2){ hideSug(); return; }
+  const seq = ++sugSeq;
+  const cols = key === "q" ? ["title","author","subject"] : [key];
+  const res = await Promise.all(cols.map(c => sb.from("books").select(c).ilike(c, "%" + likeEsc(term) + "%").order(c).limit(150)));
+  if(seq !== sugSeq || document.activeElement !== inp) return;
+  const t = term.toLowerCase(), seen = new Set(); let items = [];
+  res.forEach((r, i) => (r.data || []).forEach(row => {
+    const vals = cols[i] === "subject" ? String(row.subject || "").split("/").map(x => x.trim()) : [row[cols[i]]];
+    vals.forEach(v => { if(!v || !v.toLowerCase().includes(t)) return; const k = cols[i] + "|" + v.toLowerCase();
+      if(seen.has(k)) return; seen.add(k); items.push({v, c:cols[i]}); });
+  }));
+  items.sort((a, b) => b.v.toLowerCase().startsWith(t) - a.v.toLowerCase().startsWith(t));
+  items = items.slice(0, 8);
+  if(!items.length || (items.length === 1 && items[0].v.toLowerCase() === t)){ hideSug(); return; }
+  sugInput = inp; sugItems = items; sugIdx = -1;
+  sug.innerHTML = items.map((it, i) => `<div data-i="${i}">${esc(it.v)}${key === "q" ? `<small>${SUG_LABEL[it.c]}</small>` : ""}</div>`).join("");
+  const host = inp.closest("dialog") || document.body;
+  if(sug.parentNode !== host) host.appendChild(sug);
+  const r = inp.getBoundingClientRect();
+  sug.style.left = r.left + "px"; sug.style.top = (r.bottom + 2) + "px"; sug.style.minWidth = r.width + "px"; sug.style.maxWidth = "92vw";
+  sug.classList.remove("hide");
+}
+function sugPick(i){
+  const it = sugItems[i], inp = sugInput; if(!it || !inp) return;
+  if(inp.dataset.sug === "subject"){ const p = inp.value.split("/"); p[p.length-1] = it.v; inp.value = p.join("/"); } else inp.value = it.v;
+  skipSug = true; inp.dispatchEvent(new Event("input", {bubbles:true})); skipSug = false;
+  hideSug(); inp.focus();
+}
+function sugMark(){ [...sug.children].forEach((d, i) => d.classList.toggle("on", i === sugIdx)); }
+document.addEventListener("input", e => {
+  const inp = e.target; if(!inp.dataset || !inp.dataset.sug || skipSug) return;
+  clearTimeout(sugTimer); sugTimer = setTimeout(() => sugFetch(inp), 200);
+});
+document.addEventListener("keydown", e => {
+  if(!sugOpen() || e.target !== sugInput) return;
+  if(e.key === "ArrowDown" || e.key === "ArrowUp"){ e.preventDefault(); sugIdx = (sugIdx + (e.key === "ArrowDown" ? 1 : -1) + sugItems.length) % sugItems.length; sugMark(); }
+  else if(e.key === "Enter" && sugIdx >= 0){ e.preventDefault(); sugPick(sugIdx); }
+  else if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); hideSug(); }
+}, true);
+sug.addEventListener("mousedown", e => { e.preventDefault(); const d = e.target.closest("[data-i]"); if(d) sugPick(+d.dataset.i); });
+document.addEventListener("focusout", e => { if(e.target === sugInput) hideSug(); });
+addEventListener("scroll", e => { if(e.target !== sug) hideSug(); }, true);
+addEventListener("resize", hideSug);
 
 /* CRUD */
 async function addBook(){
