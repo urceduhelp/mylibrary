@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>මගේ පුස්තකාලය</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--tx:#1d1d1b;--mu:#6b6b66;--ac:#1d5c4a;--bd:#ddd9ce;--rd:#b3261e}
+@media(prefers-color-scheme:dark){:root{--bg:#161614;--card:#211f1d;--tx:#efece4;--mu:#9b978c;--ac:#4fb394;--bd:#38352f;--rd:#f2766e}}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Noto Sans Sinhala","Iskoola Pota",system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+.wrap{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:14px}
+input{width:100%;padding:9px;border:1px solid var(--bd);border-radius:7px;background:var(--bg);color:var(--tx);font:inherit}
+button{padding:7px 12px;border:0;border-radius:7px;background:var(--ac);color:#fff;font:inherit;cursor:pointer}
+button.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
+button.d{background:transparent;color:var(--rd);border:1px solid var(--bd)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:10px}
+label{font-size:12px;color:var(--mu)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#msg{font-size:13px;color:var(--mu);margin:6px 0}
+.hide{display:none!important}
+#sbar{position:sticky;top:0;z-index:20;margin-bottom:14px}
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.tile{display:flex;flex-direction:column;background:var(--card);border:2px solid;border-radius:6px;overflow:hidden;min-height:230px}
+.th{padding:14px 8px;text-align:center;color:#222}
+.tt{font-size:21px;line-height:1.25}
+.tv{font-size:13px;margin-top:2px}
+.tb{flex:1;padding:10px 12px;text-align:center;font-size:14px;display:flex;flex-direction:column;gap:7px}
+.tb hr{width:100%;border:0;border-top:1px solid;margin:0}
+.tf{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;font-size:13px}
+.tf .row{gap:4px}.tf button{padding:2px 8px;font-size:12px}
+/* popup */
+#pop{position:fixed;left:0;right:0;margin:0 auto;width:calc(100% - 32px);max-width:968px;bottom:16px;z-index:15;
+ background:var(--bg);border:1px solid var(--bd);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:flex;flex-direction:column}
+#pop .ph{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bd)}
+#pop .pb{overflow:auto;padding:14px;flex:1}
+.pager{display:flex;gap:10px;justify-content:center;align-items:center;margin:14px 0 0}
+.warn{background:#fff3cd;color:#5c4400;border:1px solid #e6c34a;border-radius:8px;padding:8px 12px;font-size:14px;margin:8px 0}
+.warn div{margin-top:4px}
+.warn button{padding:1px 8px;font-size:12px;color:#5c4400;border-color:#c9a53a}
+dialog{border:1px solid var(--bd);border-radius:12px;background:var(--card);color:var(--tx);width:min(560px,92vw)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div id="login" class="card hide" style="max-width:380px;margin:60px auto">
+  <h1>පුස්තකාලය — Login</h1><br>
+  <label>Email</label><input id="em" type="email"><br><br>
+  <label>මුරපදය</label><input id="pw" type="password"><br><br>
+  <button onclick="signIn()">ඇතුල් වන්න</button>
+  <div id="lmsg" style="color:var(--rd);font-size:13px;margin-top:8px"></div>
+</div>
+
+<div id="app" class="hide">
+  <div class="bar"><h1>📚 මගේ පුස්තකාලය</h1><button class="g" onclick="signOut()">Logout</button></div>
+
+  <!-- Search bar (sticky) -->
+  <div id="sbar" class="card">
+    <input id="q" placeholder="🔍 නම, කතුවරයා, විෂයය, ISBN හෝ පොත් අංකය මගින් සොයන්න..." oninput="onSearch()">
+    <div class="row" style="margin-top:8px">
+      <input id="fr" placeholder="රාක්ක අංකය" oninput="onSearch()" style="width:140px">
+      <input id="fs" placeholder="තට්ටු අංකය" oninput="onSearch()" style="width:140px">
+      <button class="g" onclick="clearSearch()">හිස් කරන්න</button>
+    </div>
+  </div>
+
+  <!-- Search popup -->
+  <div id="pop" class="hide">
+    <div class="ph"><b id="pcnt"></b><button class="g" onclick="closePop()">✕ වසන්න</button></div>
+    <div class="pb"><div id="ptiles" class="tiles"></div>
+      <div class="pager"><button class="g" onclick="popGo(-1)">← පෙර</button><span id="ppg"></span><button class="g" onclick="popGo(1)">ඊළඟ →</button></div></div>
+  </div>
+
+  <!-- Add form -->
+  <div class="card">
+    <b>නව පොතක් ඇතුළත් කරන්න</b>
+    <div class="grid" id="addf" style="margin-top:10px"></div>
+    <div id="dup" class="warn hide"></div>
+    <div class="row">
+      <button onclick="addBook()">සුරකින්න</button>
+      <button class="g" onclick="resetAdd()">හිස් කරන්න</button>
+      <span style="flex:1"></span>
+      <label class="row" style="font-size:13px">CSV Import:&nbsp;<input type="file" id="csv" accept=".csv,.tsv,.txt" style="width:auto" onchange="importCSV(this.files[0])"></label>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <!-- All books -->
+  <div class="row" style="justify-content:space-between;margin-bottom:8px"><b id="cnt">සියලු පොත්</b></div>
+  <div id="tiles" class="tiles"></div>
+  <div class="pager"><button class="g" onclick="go(-1)">← පෙර</button><span id="pg"></span><button class="g" onclick="go(1)">ඊළඟ →</button></div>
+</div>
+</div>
+
+<!-- Edit dialog -->
+<dialog id="ed">
+  <h3 style="margin-top:0">පොත සංස්කරණය</h3>
+  <div class="grid" id="editf"></div>
+  <div class="row"><button onclick="saveEdit()">සුරකින්න</button><button class="g" onclick="ed.close()">අවලංගු</button></div>
+  <div id="emsg" style="color:var(--rd);font-size:13px;margin-top:6px"></div>
+</dialog>
+
+<script>
+const SUPABASE_URL = "https://jcijglwpkfluyzrltimk.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpjaWpnbHdwa2ZsdXl6cmx0aW1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY4MzU3OTUsImV4cCI6MjA4MjQxMTc5NX0.dvT8OiyVEiYn_DhkMakmSq1Vvr4REDr0kYPnyqCtWHs";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+const FIELDS = [["title","පොතේ නම"],["volume","කොටස (උදා: පළමු කොටස)"],["author","කතුවරයා"],["subject","විෂයය (උදා: ඉතිහාසය/ආගම)"],
+  ["price","මිල","number"],["isbn","ISBN"],["book_number","පොත් අංකය"],["rack_number","රාක්ක අංකය"],["shelf_number","තට්ටු අංකය"]];
+const F = FIELDS.map(f => f[0]);
+const SIZE = 30, PSIZE = 24;
+let page = 0, popPage = 0, editId = null, timer; const cache = {};
+
+/* විෂය වර්ණ: මුල් විෂයය අනුව. අවශ්‍ය නම් මෙහි hue (0-360) වෙනස් කරන්න/එකතු කරන්න */
+const HUES = {"ඉතිහාසය":210,"ආගම":30,"විද්‍යාව":150,"මනෝවිද්‍යාව":0,"සාහිත්‍යය":280,"භාෂාව":50};
+function colorOf(subject){
+  const first = (subject || "").split(/[\/,|]/)[0].trim();
+  if(!first) return {bg:"hsl(0 0% 78%)", bd:"hsl(0 0% 55%)"};
+  let h = HUES[first];
+  if(h === undefined){ h = 0; for(const ch of first) h = (h*31 + ch.charCodeAt(0)) % 360; }
+  return {bg:`hsl(${h} 55% 78%)`, bd:`hsl(${h} 40% 55%)`};
+}
+const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const clean = v => { v = (v ?? "").toString().trim(); return v === "" ? null : v; };
+
+/* forms */
+const fieldsHTML = p => FIELDS.map(([k,l,t]) => `<div><label>${l}</label><input id="${p}${k}" type="${t||"text"}" ${t==="number"?'step="0.01"':""}></div>`).join("");
+$("addf").innerHTML = fieldsHTML("f_"); $("editf").innerHTML = fieldsHTML("e_");
+function readForm(p){
+  const o = {}; F.forEach(k => o[k] = clean($(p+k).value));
+  if(o.price !== null){ const n = parseFloat(o.price); o.price = isNaN(n) ? null : n; }
+  return o;
+}
+const say = t => $("msg").textContent = t;
+function resetAdd(){ F.forEach(k => $("f_"+k).value = ""); $("dup").classList.add("hide"); }
+const isEmpty = o => Object.values(o).every(v => v === null);
+
+/* auth */
+function show(a){ $("login").classList.toggle("hide", a); $("app").classList.toggle("hide", !a); if(a) load(); }
+async function signIn(){
+  const {error} = await sb.auth.signInWithPassword({email:$("em").value.trim(), password:$("pw").value});
+  if(error) $("lmsg").textContent = error.message; else show(true);
+}
+async function signOut(){ await sb.auth.signOut(); show(false); }
+sb.auth.getSession().then(({data}) => show(!!data.session));
+
+/* duplicate check: නම + කොටස සමාන පොත් */
+const likeEsc = v => v.replace(/[\\%_]/g, "\\$&");
+const locOf = b => [b.book_number && "B-"+b.book_number, b.rack_number && "R-"+b.rack_number, b.shelf_number && "S-"+b.shelf_number].filter(Boolean).join(" | ");
+async function findDups(d, excludeId){
+  if(!d.title) return [];
+  let qb = sb.from("books").select("*").ilike("title", likeEsc(d.title)).limit(5);
+  qb = d.volume ? qb.ilike("volume", likeEsc(d.volume)) : qb.is("volume", null);
+  if(excludeId) qb = qb.neq("id", excludeId);
+  const {data} = await qb; (data || []).forEach(b => cache[b.id] = b);
+  return data || [];
+}
+function showDup(dups){
+  const el = $("dup");
+  if(!dups.length){ el.classList.add("hide"); return; }
+  el.innerHTML = "⚠ <b>මෙම නමින් පොතක් දැනටමත් ඇත!</b>" + dups.map(b =>
+    `<div>• ${esc(b.title)}${b.volume ? " — " + esc(b.volume) : ""}${b.author ? " — " + esc(b.author) : ""}${locOf(b) ? " (" + esc(locOf(b)) + ")" : ""} <button class="g" onclick="openEdit(${b.id})">Ed</button></div>`).join("");
+  el.classList.remove("hide");
+}
+async function checkDup(){ showDup(await findDups(readForm("f_"))); }
+$("addf").addEventListener("focusin", e => { if(e.target.id !== "f_title" && e.target.id !== "f_volume") checkDup(); });
+$("f_volume").addEventListener("blur", checkDup);
+["f_title","f_volume"].forEach(id => $(id).addEventListener("input", () => $("dup").classList.add("hide")));
+
+/* CRUD */
+async function addBook(){
+  const d = readForm("f_");
+  if(isEmpty(d)){ say("අවම වශයෙන් එක් දත්තයක් හෝ ඇතුළත් කරන්න."); return; }
+  const dups = await findDups(d);
+  if(dups.length && !confirm("මෙම නමින් (සහ කොටසින්) පොතක් දැනටමත් ඇත. එසේ වුවත් නැවත ඇතුළත් කරන්නද?")){ showDup(dups); return; }
+  const {error} = await sb.from("books").insert(d);
+  if(error){ say("දෝෂයක්: " + error.message); return; }
+  say("ඇතුළත් කළා ✔"); resetAdd(); refresh();
+}
+function openEdit(id){
+  const b = cache[id]; editId = id; $("emsg").textContent = "";
+  F.forEach(k => $("e_"+k).value = b[k] ?? ""); $("ed").showModal();
+}
+async function saveEdit(){
+  const d = readForm("e_");
+  if(isEmpty(d)){ $("emsg").textContent = "සියල්ල හිස් විය නොහැක."; return; }
+  const dups = await findDups(d, editId);
+  if(dups.length && !confirm("මෙම නමින් (සහ කොටසින්) වෙනත් පොතක් දැනටමත් ඇත. එසේ වුවත් සුරකින්නද?")) return;
+  const {error} = await sb.from("books").update(d).eq("id", editId);
+  if(error){ $("emsg").textContent = error.message; return; }
+  $("ed").close(); refresh();
+}
+async function del(id){
+  const b = cache[id];
+  if(!confirm(`"${b.title || "නම නැති පොත"}" මකන්නද?`)) return;
+  const {error} = await sb.from("books").delete().eq("id", id);
+  if(error) alert(error.message); else refresh();
+}
+function refresh(){ load(); if(!$("pop").classList.contains("hide")) loadPop(); }
+
+/* tile */
+function tile(b){
+  cache[b.id] = b; const c = colorOf(b.subject);
+  const loc = [b.book_number && "B-"+b.book_number, b.rack_number && "R-"+b.rack_number, b.shelf_number && "S-"+b.shelf_number].filter(Boolean).join(" | ");
+  const price = b.price !== null && b.price !== undefined ? "Rs." + Number(b.price).toFixed(2) : "";
+  return `<div class="tile" style="border-color:${c.bd}">
+    <div class="th" style="background:${c.bg}"><div class="tt">${esc(b.title) || "(නම නැත)"}</div>${b.volume ? `<div class="tv">${esc(b.volume)}</div>` : ""}</div>
+    <div class="tb">${b.author ? `<div>${esc(b.author)}</div><hr style="border-color:${c.bd}">` : ""}
+      ${b.subject ? `<div>${esc(b.subject)}</div>` : ""}${b.isbn ? `<div>ISBN ${esc(b.isbn)}</div>` : ""}${loc ? `<div><b>${esc(loc)}</b></div>` : ""}</div>
+    <div class="tf"><span>${price}</span><span class="row"><button class="g" onclick="openEdit(${b.id})">Ed</button><button class="d" onclick="del(${b.id})">Dlt</button></span></div></div>`;
+}
+
+/* queries */
+async function fetchBooks(p, size, filtered){
+  let qb = sb.from("books").select("*", {count:"exact"}).range(p*size, p*size + size - 1);
+  if(filtered){
+    const q = $("q").value.replace(/[,()%*]/g, " ").trim();
+    const rk = clean($("fr").value), sh = clean($("fs").value);
+    if(q) qb = qb.or(["title","author","subject","isbn","book_number"].map(c => `${c}.ilike.%${q}%`).join(","));
+    if(rk) qb = qb.ilike("rack_number", rk.replace(/[%*_]/g, ""));
+    if(sh) qb = qb.ilike("shelf_number", sh.replace(/[%*_]/g, ""));
+    qb = (rk || sh) ? qb.order("rack_number").order("shelf_number").order("book_number") : qb.order("id", {ascending:false});
+  } else qb = qb.order("id", {ascending:false});
+  return qb;
+}
+async function load(){
+  const {data, count, error} = await fetchBooks(page, SIZE, false);
+  if(error){ say(error.message); return; }
+  $("cnt").textContent = `සියලු පොත් (${count ?? 0}) — අලුත්ම ඒවා මුලින්`;
+  $("pg").textContent = "පිටුව " + (page+1);
+  $("tiles").innerHTML = data.map(tile).join("") || `<div style="color:var(--mu)">පොත් නැත</div>`;
+}
+function go(n){ if(page + n < 0) return; page += n; load(); }
+
+/* search popup */
+const hasSearch = () => $("q").value.trim() || $("fr").value.trim() || $("fs").value.trim();
+function onSearch(){ clearTimeout(timer); timer = setTimeout(() => { if(!hasSearch()){ closePop(); return; } popPage = 0; openPop(); }, 300); }
+function placePop(){ $("pop").style.top = ($("sbar").getBoundingClientRect().bottom + 6) + "px"; }
+function openPop(){ $("pop").classList.remove("hide"); placePop(); loadPop(); }
+function closePop(){ $("pop").classList.add("hide"); }
+function clearSearch(){ $("q").value = $("fr").value = $("fs").value = ""; closePop(); }
+async function loadPop(){
+  const {data, count, error} = await fetchBooks(popPage, PSIZE, true);
+  if(error){ $("pcnt").textContent = error.message; return; }
+  $("pcnt").textContent = `සෙවුම් ප්‍රතිඵල: ${count ?? 0}`;
+  $("ppg").textContent = "පිටුව " + (popPage+1);
+  $("ptiles").innerHTML = data.map(tile).join("") || `<div style="color:var(--mu)">කිසිවක් නැත</div>`;
+}
+function popGo(n){ if(popPage + n < 0) return; popPage += n; loadPop(); }
+addEventListener("resize", () => { if(!$("pop").classList.contains("hide")) placePop(); });
+addEventListener("keydown", e => { if(e.key === "Escape" && !$("ed").open) closePop(); });
+
+/* CSV import */
+function parseCSV(t,d){
+  const out = []; let r = [], c = "", q = false;
+  for(let i = 0; i < t.length; i++){
+    const ch = t[i];
+    if(q){ if(ch === '"'){ if(t[i+1] === '"'){ c += '"'; i++; } else q = false; } else c += ch; }
+    else if(ch === '"') q = true;
+    else if(ch === d){ r.push(c); c = ""; }
+    else if(ch === "\n"){ r.push(c); out.push(r); r = []; c = ""; }
+    else if(ch !== "\r") c += ch;
+  }
+  if(c !== "" || r.length){ r.push(c); out.push(r); }
+  return out;
+}
+async function importCSV(file){
+  if(!file) return;
+  const t = (await file.text()).replace(/^\uFEFF/, "");
+  const first = t.split("\n")[0];
+  const d = first.includes("\t") ? "\t" : (first.includes(";") && !first.includes(",") ? ";" : ",");
+  const [h, ...body] = parseCSV(t, d);
+  const idx = {}; h.forEach((x,i) => idx[x.trim().toLowerCase()] = i);
+  if(!F.some(k => idx[k] !== undefined)){ say("Import දෝෂය: පළමු පේළියේ title, author, subject... headings නැත."); return; }
+  const recs = body.map(r => { const o = {}; F.forEach(k => o[k] = idx[k] === undefined ? null : clean(r[idx[k]]));
+    if(o.price !== null){ const n = parseFloat(o.price); o.price = isNaN(n) ? null : n; } return o; }).filter(o => !isEmpty(o));
+  const keyOf = o => (o.title || "").trim().toLowerCase() + "|" + (o.volume || "").trim().toLowerCase();
+  const seen = new Set();
+  for(let p = 0; ; p++){
+    const {data, error} = await sb.from("books").select("title,volume").order("id").range(p*1000, p*1000 + 999);
+    if(error){ say("Import දෝෂය: " + error.message); return; }
+    data.forEach(o => { if(o.title) seen.add(keyOf(o)); });
+    say("පවතින පොත් පරීක්ෂා කරමින්... " + (p*1000 + data.length));
+    if(data.length < 1000) break;
+  }
+  let skipped = 0;
+  const fresh = recs.filter(o => { if(!o.title) return true; const k = keyOf(o); if(seen.has(k)){ skipped++; return false; } seen.add(k); return true; });
+  for(let i = 0; i < fresh.length; i += 500){
+    const {error} = await sb.from("books").insert(fresh.slice(i, i+500));
+    if(error){ say("Import දෝෂය: " + error.message); return; }
+    say(`Import කරමින්... ${Math.min(i+500, fresh.length)} / ${fresh.length}`);
+  }
+  say(`පොත් ${fresh.length}ක් Import කළා ✔` + (skipped ? ` (නම සහ කොටස සමාන නිසා ${skipped}ක් මඟ හැරියා)` : "")); $("csv").value = ""; load();
+}
+</script>
+</body>
+</html>
