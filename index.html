@@ -188,7 +188,7 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = id => document.getElementById(id);
 const FIELDS = [["title","පොතේ නම"],["volume","කොටස (උදා: පළමු කොටස)"],["author","කතුවරයා"],["subject","විෂයය (උදා: ඉතිහාසය/ආගම)"],
-  ["price","මිල","number"],["isbn","ISBN"],["book_number","පොත් අංකය"],["rack_number","රාක්ක අංකය"],["shelf_number","තට්ටු අංකය"]];
+  ["publisher","ප්‍රකාශකයා"],["print_year","මුද්‍රිත වර්ෂය","number"],["pages","පිටු ගණන","number"],["price","මිල","number"],["isbn","ISBN"],["book_number","පොත් අංකය"],["rack_number","රාක්ක අංකය"],["shelf_number","තට්ටු අංකය"]];
 const F = FIELDS.map(f => f[0]);
 const SIZE = 30, PSIZE = 24;
 let page = 0, apage = 0, popPage = 0, editId = null, timer, isAdmin = false; const cache = {};
@@ -205,13 +205,24 @@ const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":
 const clean = v => { v = (v ?? "").toString().trim(); return v === "" ? null : v; };
 const money = n => "Rs." + Number(n || 0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
 
+/* valuation: මුද්‍රිත වර්ෂයේ සිට වර්ෂයකට GROWTH ප්‍රතිශතයකින් වැඩිවේ. COMPOUND=false නම් සරල (මුල් මිලෙන් 30%) */
+const GROWTH = 0.30, COMPOUND = true, NOWY = new Date().getFullYear();
+const NUM = ["price","print_year","pages"];
+const numFix = o => { NUM.forEach(k => { if(o[k] !== null){ const n = parseFloat(o[k]); o[k] = isNaN(n) ? null : (k === "price" ? n : Math.round(n)); } }); return o; };
+const hasAdj = b => b.price != null && Number(b.print_year) > 0 && Number(b.print_year) <= NOWY;
+function adjVal(b){
+  if(b.price == null) return null;
+  if(!hasAdj(b)) return Number(b.price);
+  const n = NOWY - Number(b.print_year), p = Number(b.price);
+  return p * (COMPOUND ? Math.pow(1 + GROWTH, n) : 1 + GROWTH * n);
+}
+
 /* forms */
-const fieldsHTML = p => FIELDS.map(([k,l,t]) => `<div><label>${l}</label><input id="${p}${k}" ${t==="number"?"":`data-sug="${k}"`} type="${t||"text"}" ${t==="number"?'step="0.01"':""}></div>`).join("");
+const fieldsHTML = p => FIELDS.map(([k,l,t]) => `<div><label>${l}</label><input id="${p}${k}" ${t==="number"?"":`data-sug="${k}"`} type="${t||"text"}" ${t==="number"?`step="${k==="price"?"0.01":"1"}"`:""}></div>`).join("");
 $("addf").innerHTML = fieldsHTML("f_"); $("editf").innerHTML = fieldsHTML("e_");
 function readForm(p){
   const o = {}; F.forEach(k => o[k] = clean($(p+k).value));
-  if(o.price !== null){ const n = parseFloat(o.price); o.price = isNaN(n) ? null : n; }
-  return o;
+  return numFix(o);
 }
 const say = t => $("msg").textContent = t;
 function resetAdd(){ F.forEach(k => $("f_"+k).value = ""); $("dup").classList.add("hide"); }
@@ -261,7 +272,7 @@ $("f_volume").addEventListener("blur", checkDup);
 ["f_title","f_volume"].forEach(id => $(id).addEventListener("input", () => $("dup").classList.add("hide")));
 
 /* suggestions */
-const SUG_LABEL = {title:"නම", author:"කතුවරයා", subject:"විෂයය"};
+const SUG_LABEL = {title:"නම", author:"කතුවරයා", subject:"විෂයය", publisher:"ප්‍රකාශකයා"};
 const sug = document.createElement("div"); sug.id = "sug"; sug.className = "hide"; document.body.appendChild(sug);
 let sugInput = null, sugItems = [], sugIdx = -1, sugTimer, sugSeq = 0, skipSug = false;
 document.querySelectorAll("[data-sug]").forEach(i => i.autocomplete = "off");
@@ -272,7 +283,7 @@ async function sugFetch(inp){
   const key = inp.dataset.sug, term = sugTerm(inp);
   if([...term].length < 2){ hideSug(); return; }
   const seq = ++sugSeq;
-  const cols = key === "q" ? ["title","author","subject"] : [key];
+  const cols = key === "q" ? ["title","author","subject","publisher"] : [key];
   const res = await Promise.all(cols.map(c => sb.from("books").select(c).ilike(c, "%" + likeEsc(term) + "%").order(c).limit(150)));
   if(seq !== sugSeq || document.activeElement !== inp) return;
   const t = term.toLowerCase(), seen = new Set(); let items = [];
@@ -377,19 +388,21 @@ function refresh(){ loadA(); loadStats(); load(); }
 function tile(b, adm){
   cache[b.id] = b; const c = colorOf(b.subject);
   const loc = locOf(b);
-  const price = b.price !== null && b.price !== undefined ? money(b.price) : "";
+  const meta = [b.publisher, b.print_year, b.pages != null && b.pages + " පිටු"].filter(Boolean).map(esc).join(" · ");
+  const price = b.price != null ? `<div>මිල: ${money(b.price)}</div>` : "";
+  const adj = hasAdj(b) ? `<div title="${b.print_year} සිට වසරකට +${Math.round(GROWTH*100)}%">කාලීන: <b>${money(adjVal(b))}</b></div>` : "";
   return `<div class="tile" style="border-color:${c.bd}">
     <div class="th" style="background:${c.bg}"><div class="tt">${esc(b.title) || "(නම නැත)"}</div>${b.volume ? `<div class="tv">${esc(b.volume)}</div>` : ""}</div>
     <div class="tb">${b.author ? `<div>${esc(b.author)}</div><hr style="border-color:${c.bd}">` : ""}
-      ${b.subject ? `<div>${esc(b.subject)}</div>` : ""}${b.isbn ? `<div>ISBN ${esc(b.isbn)}</div>` : ""}${loc ? `<div><b>${esc(loc)}</b></div>` : ""}</div>
-    <div class="tf"><span>${price}</span>${adm ? `<span class="row"><button class="g" onclick="openEdit(${b.id})">Ed</button><button class="d" onclick="del(${b.id})">Dlt</button></span>` : `<button class="g" title="Copy" onclick="copyBook(${b.id})">📋 Copy</button>`}</div></div>`;
+      ${b.subject ? `<div>${esc(b.subject)}</div>` : ""}${meta ? `<div style="font-size:13px;color:var(--mu)">${meta}</div>` : ""}${b.isbn ? `<div>ISBN ${esc(b.isbn)}</div>` : ""}${loc ? `<div><b>${esc(loc)}</b></div>` : ""}</div>
+    <div class="tf"><span style="line-height:1.45">${price}${adj}</span>${adm ? `<span class="row"><button class="g" onclick="openEdit(${b.id})">Ed</button><button class="d" onclick="del(${b.id})">Dlt</button></span>` : `<button class="g" title="Copy" onclick="copyBook(${b.id})">📋 Copy</button>`}</div></div>`;
 }
 
 /* queries */
 function applyFilter(qb){
   const q = $("q").value.replace(/[,()%*]/g, " ").trim();
   const rk = clean($("fr").value), sh = clean($("fs").value);
-  if(q) qb = qb.or(["title","author","subject","isbn","book_number"].map(c => `${c}.ilike.%${q}%`).join(","));
+  if(q) qb = qb.or(["title","author","subject","publisher","isbn","book_number"].map(c => `${c}.ilike.%${q}%`).join(","));
   if(rk) qb = qb.ilike("rack_number", rk.replace(/[%*_]/g, ""));
   if(sh) qb = qb.ilike("shelf_number", sh.replace(/[%*_]/g, ""));
   return qb;
@@ -412,7 +425,7 @@ function go(n){ if(page + n < 0) return; page += n; load(); }
 async function loadA(){
   let qb = sb.from("books").select("*", {count:"exact"}).range(apage*SIZE, apage*SIZE + SIZE - 1).order("id", {ascending:false});
   const aq = $("aq").value.replace(/[,()%*]/g, " ").trim();
-  if(aq) qb = qb.or(["title","author","subject","isbn","book_number"].map(c => `${c}.ilike.%${aq}%`).join(","));
+  if(aq) qb = qb.or(["title","author","subject","publisher","isbn","book_number"].map(c => `${c}.ilike.%${aq}%`).join(","));
   const {data, count, error} = await qb;
   if(error){ $("acnt").textContent = error.message; return; }
   $("acnt").textContent = `${aq ? "සෙවුම් ප්‍රතිඵල" : "සියලු පොත්"} (${count ?? 0})`;
@@ -425,27 +438,33 @@ function goA(n){ if(apage + n < 0) return; apage += n; loadA(); }
 async function loadStats(){
   const rows = [];
   for(let p = 0; ; p++){
-    const {data, error} = await sb.from("books").select("id,title,volume,price,subject").order("id").range(p*1000, p*1000 + 999);
+    const {data, error} = await sb.from("books").select("id,title,volume,price,subject,print_year").order("id").range(p*1000, p*1000 + 999);
     if(error){ $("sstat").textContent = error.message; return; }
     rows.push(...data); if(data.length < 1000) break;
   }
-  const total = rows.reduce((s, r) => s + (Number(r.price) || 0), 0);
-  $("sstat").innerHTML = `පොත් ගණන: <b>${rows.length}</b> &nbsp;·&nbsp; සමස්ත වටිනාකම: <b>${money(total)}</b>`;
+  const total = rows.reduce((s, r) => s + (Number(r.price) || 0), 0), adjT = rows.reduce((s, r) => s + (adjVal(r) || 0), 0);
+  $("sstat").innerHTML = `පොත් ගණන: <b>${rows.length}</b> &nbsp;·&nbsp; මිල අනුව වටිනාකම: <b>${money(total)}</b> &nbsp;·&nbsp; කාලීන වටිනාකම: <b>${money(adjT)}</b>`;
   if(!isAdmin) return;
-  let top = null; rows.forEach(r => { if(r.price != null && (!top || Number(r.price) > Number(top.price))) top = r; });
+  let top = null, topA = null;
+  rows.forEach(r => { if(r.price == null) return;
+    if(!top || Number(r.price) > Number(top.price)) top = r;
+    if(!topA || adjVal(r) > adjVal(topA)) topA = r; });
+  const topK = (t, v) => t ? `<div>${esc(t.title || "(නම නැත)")}</div><span>${t.volume ? esc(t.volume) + " — " : ""}${money(v)}</span>` : "<div>—</div>";
   $("kpis").innerHTML =
     `<div class="kpi"><small>පොත් ගණන</small><div>${rows.length}</div></div>
-     <div class="kpi"><small>සමස්ත වටිනාකම</small><div>${money(total)}</div></div>
-     <div class="kpi"><small>වැඩිම වටිනා පොත</small><div>${top ? esc(top.title || "(නම නැත)") : "—"}</div>${top ? `<span>${top.volume ? esc(top.volume) + " — " : ""}${money(top.price)}</span>` : ""}</div>`;
+     <div class="kpi"><small>සමස්ත වටිනාකම (මිල අනුව)</small><div>${money(total)}</div></div>
+     <div class="kpi"><small>සමස්ත කාලීන වටිනාකම (වසරකට +${Math.round(GROWTH*100)}%)</small><div>${money(adjT)}</div></div>
+     <div class="kpi"><small>වැඩිම වටිනා පොත (මිල)</small>${topK(top, top && top.price)}</div>
+     <div class="kpi"><small>වැඩිම වටිනා පොත (කාලීන)</small>${topK(topA, topA && adjVal(topA))}</div>`;
   const m = {};
   rows.forEach(r => {
     const parts = [...new Set(String(r.subject || "").split("/").map(x => x.trim()).filter(Boolean))];
-    (parts.length ? parts : ["(විෂයය නැත)"]).forEach(s => { m[s] = m[s] || {n:0, v:0}; m[s].n++; m[s].v += Number(r.price) || 0; });
+    (parts.length ? parts : ["(විෂයය නැත)"]).forEach(s => { m[s] = m[s] || {n:0, v:0, a:0}; m[s].n++; m[s].v += Number(r.price) || 0; m[s].a += adjVal(r) || 0; });
   });
   const list = Object.entries(m).sort((a, b) => b[1].n - a[1].n), max = list.length ? list[0][1].n : 1;
-  $("subj").innerHTML = `<tr><th>විෂයය</th><th class="n">පොත් ගණන</th><th class="n">වටිනාකම</th><th style="width:30%"></th></tr>` +
-    list.map(([s, o]) => `<tr><td>${esc(s)}</td><td class="n">${o.n}</td><td class="n">${money(o.v)}</td><td><div class="barx" style="width:${Math.max(2, o.n / max * 100)}%"></div></td></tr>`).join("") +
-    `<tr><td colspan="4" style="color:var(--mu);font-size:12px;border:0">* විෂයයන් කිහිපයක් (/) ඇති පොතක් එක් එක් විෂයය යටතේ ගණන් ගනී.</td></tr>`;
+  $("subj").innerHTML = `<tr><th>විෂයය</th><th class="n">පොත් ගණන</th><th class="n">මිල අනුව</th><th class="n">කාලීන</th><th style="width:25%"></th></tr>` +
+    list.map(([s, o]) => `<tr><td>${esc(s)}</td><td class="n">${o.n}</td><td class="n">${money(o.v)}</td><td class="n">${money(o.a)}</td><td><div class="barx" style="width:${Math.max(2, o.n / max * 100)}%"></div></td></tr>`).join("") +
+    `<tr><td colspan="5" style="color:var(--mu);font-size:12px;border:0">* විෂයයන් කිහිපයක් (/) ඇති පොතක් එක් එක් විෂයය යටතේ ගණන් ගනී.<br>* කාලීන වටිනාකම = මිල × ${COMPOUND ? (1+GROWTH) + "^(වර්තමාන වර්ෂය − මුද්‍රිත වර්ෂය)" : "(1 + " + GROWTH + " × වසර ගණන)"}. මුද්‍රිත වර්ෂය නොමැති පොත් සඳහා මිල ම ගනී.</td></tr>`;
 }
 
 /* search popup */
@@ -456,12 +475,12 @@ function openPop(){ $("pop").classList.remove("hide"); placePop(); loadPop(); }
 function closePop(){ $("pop").classList.add("hide"); }
 function clearSearch(){ $("q").value = $("fr").value = $("fs").value = ""; closePop(); }
 async function popSum(){
-  let s = 0;
+  let s = 0, a = 0;
   for(let p = 0; ; p++){
-    const {data} = await applyFilter(sb.from("books").select("price")).order("id").range(p*1000, p*1000 + 999);
-    if(!data) break; data.forEach(r => s += Number(r.price) || 0); if(data.length < 1000) break;
+    const {data} = await applyFilter(sb.from("books").select("price,print_year")).order("id").range(p*1000, p*1000 + 999);
+    if(!data) break; data.forEach(r => { s += Number(r.price) || 0; a += adjVal(r) || 0; }); if(data.length < 1000) break;
   }
-  return s;
+  return {s, a};
 }
 async function loadPop(){
   const {data, count, error} = await fetchBooks(popPage, PSIZE, true);
@@ -469,8 +488,8 @@ async function loadPop(){
   $("pcnt").textContent = `සෙවුම් ප්‍රතිඵල: ${count ?? 0}`;
   $("ppg").textContent = "පිටුව " + (popPage+1);
   $("ptiles").innerHTML = data.map(b => tile(b, false)).join("") || `<div style="color:var(--mu)">කිසිවක් නැත</div>`;
-  const s = await popSum();
-  if(!$("pop").classList.contains("hide")) $("pcnt").textContent = `සෙවුම් ප්‍රතිඵල: ${count ?? 0} — වටිනාකම: ${money(s)}`;
+  const r = await popSum();
+  if(!$("pop").classList.contains("hide")) $("pcnt").textContent = `සෙවුම් ප්‍රතිඵල: ${count ?? 0} — මිල: ${money(r.s)} — කාලීන: ${money(r.a)}`;
 }
 function popGo(n){ if(popPage + n < 0) return; popPage += n; loadPop(); }
 addEventListener("resize", () => { if(!$("pop").classList.contains("hide")) placePop(); });
@@ -499,7 +518,7 @@ async function importCSV(file){
   const idx = {}; h.forEach((x,i) => idx[x.trim().toLowerCase()] = i);
   if(!F.some(k => idx[k] !== undefined)){ say("Import දෝෂය: පළමු පේළියේ title, author, subject... headings නැත."); return; }
   const recs = body.map(r => { const o = {}; F.forEach(k => o[k] = idx[k] === undefined ? null : clean(r[idx[k]]));
-    if(o.price !== null){ const n = parseFloat(o.price); o.price = isNaN(n) ? null : n; } return o; }).filter(o => !isEmpty(o));
+    return numFix(o); }).filter(o => !isEmpty(o));
   const keyOf = o => (o.title || "").trim().toLowerCase() + "|" + (o.volume || "").trim().toLowerCase();
   const seen = new Set();
   for(let p = 0; ; p++){
@@ -526,7 +545,7 @@ async function copyText(t){
   catch(e){ const a = document.createElement("textarea"); a.value = t; document.body.appendChild(a); a.select(); document.execCommand("copy"); a.remove(); }
   toast("Copy කළා ✔");
 }
-const bookLine = b => [b.title + (b.volume ? " (" + b.volume + ")" : ""), b.author, b.subject, b.isbn && "ISBN " + b.isbn, locOf(b), b.price != null && money(b.price)].filter(Boolean).join(" | ");
+const bookLine = b => [b.title + (b.volume ? " (" + b.volume + ")" : ""), b.author, b.subject, b.publisher, b.print_year, b.pages != null && b.pages + " පිටු", b.isbn && "ISBN " + b.isbn, locOf(b), b.price != null && money(b.price), hasAdj(b) && "කාලීන " + money(adjVal(b))].filter(Boolean).join(" | ");
 function copyBook(id){ copyText(bookLine(cache[id])); }
 async function copyResults(){
   toast("සූදානම් කරමින්...");
@@ -549,11 +568,12 @@ async function allRows(){
     if(error){ alert(error.message); return null; }
     rows.push(...data); if(data.length < 1000) break;
   }
+  rows.forEach(r => r._adj = r.price != null ? Math.round(adjVal(r) * 100) / 100 : null);
   return rows;
 }
 function exportCols(rows){
   const keys = new Set(); rows.forEach(r => Object.keys(r).forEach(k => keys.add(k)));
-  const lab = Object.fromEntries(FIELDS.map(f => [f[0], f[1].replace(/\s*\(.*\)/, "")]));
+  const lab = Object.fromEntries([...FIELDS.map(f => [f[0], f[1].replace(/\s*\(.*\)/, "")]), ["_adj", "කාලීන වටිනාකම"]]);
   return ["id", ...F, ...[...keys].filter(k => k !== "id" && !F.includes(k))].filter(k => keys.has(k)).map(k => [k, lab[k] || k]);
 }
 const stamp = () => new Date().toISOString().slice(0, 10);
@@ -569,7 +589,7 @@ async function exportXLSX(){
 async function exportPDF(){
   toast("සූදානම් කරමින්..."); const rows = await allRows(); if(!rows) return;
   const c = exportCols(rows), total = rows.reduce((s, r) => s + (Number(r.price) || 0), 0);
-  $("printarea").innerHTML = `<h2>📚 මගේ පුස්තකාලය</h2><p>${stamp()} · පොත් ගණන: ${rows.length} · සමස්ත වටිනාකම: ${money(total)}</p>
+  $("printarea").innerHTML = `<h2>📚 මගේ පුස්තකාලය</h2><p>${stamp()} · පොත් ගණන: ${rows.length} · සමස්ත වටිනාකම: ${money(total)} · කාලීන: ${money(rows.reduce((s, r) => s + (adjVal(r) || 0), 0))}</p>
     <table><thead><tr>${c.map(x => `<th>${esc(x[1])}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${c.map(([k]) => `<td>${esc(r[k])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   document.body.classList.add("printing");
   addEventListener("afterprint", () => { document.body.classList.remove("printing"); $("printarea").innerHTML = ""; }, {once:true});
