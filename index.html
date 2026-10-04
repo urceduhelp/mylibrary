@@ -77,6 +77,14 @@ dialog{border:1px solid var(--bd);border-radius:12px;background:var(--card);colo
  #printarea th,#printarea td{border:1px solid #888;padding:3px 4px;vertical-align:top;word-break:break-word}
  #printarea th{background:#e8e8e8}#printarea thead{display:table-header-group}#printarea tr{page-break-inside:avoid}
 }
+.er{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd);font-size:13px}
+.er:last-child{border-bottom:0}
+.eg{border:1px solid var(--bd);border-radius:8px;padding:4px 10px;margin:8px 0}
+.eg small{color:var(--mu)}
+details>summary{cursor:pointer;padding:2px 0}
+.ck{display:flex;gap:6px;align-items:center;font-size:14px;color:var(--tx)}
+.ck input{width:auto}
+.ok{background:#e3f5ea;color:#14532d;border:1px solid #86c99f;border-radius:8px;padding:8px 12px;font-size:14px}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 </style>
 </head>
@@ -134,6 +142,15 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
         <span style="font-size:12px;color:var(--mu)">PDF සඳහා print කවුළුවේ "Save as PDF" තෝරන්න.</span></div></div>
     <div class="card"><b>විෂයයන් අනුව පොත් ගණන</b>
       <div style="overflow:auto;margin-top:8px"><table id="subj"></table></div>
+    </div>
+
+    <div class="card">
+      <b>🛠 දෝෂ සොයන්න සහ නිවැරදි කරන්න</b>
+      <div id="errtypes" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:6px;margin:10px 0"></div>
+      <div class="row"><button onclick="scanErrors()">🔍 පරීක්ෂා කරන්න</button>
+        <button class="g" onclick="errAll(true)">සියල්ල තෝරන්න</button><button class="g" onclick="errAll(false)">සියල්ල ඉවත් කරන්න</button></div>
+      <div id="errsum" style="font-size:13px;color:var(--mu);margin:8px 0"></div>
+      <div id="errres"></div>
     </div>
 
     <div class="card">
@@ -207,7 +224,7 @@ const clean = v => { v = (v ?? "").toString().trim(); return v === "" ? null : v
 const money = n => "Rs." + Number(n || 0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
 
 /* valuation: මුද්‍රිත වර්ෂයේ සිට වර්ෂයකට GROWTH ප්‍රතිශතයකින් වැඩිවේ. COMPOUND=false නම් සරල (මුල් මිලෙන් 30%) */
-const GROWTH = 0.05, COMPOUND = true, NOWY = new Date().getFullYear();
+const GROWTH = 0.30, COMPOUND = true, NOWY = new Date().getFullYear();
 const NUM = ["price","print_year","pages"];
 const numFix = o => { NUM.forEach(k => { if(o[k] !== null){ const n = parseFloat(o[k]); o[k] = isNaN(n) ? null : (k === "price" ? n : Math.round(n)); } }); return o; };
 const hasAdj = b => b.price != null && Number(b.print_year) > 0 && Number(b.print_year) <= NOWY;
@@ -416,7 +433,7 @@ function openDD(dups, d, mode){
 function ddEdit(id){ dd_.close(); openEdit(id); }
 async function ddDel(id){ if(await del(id)){ dd.dups = dd.dups.filter(b => b.id !== id); ddRender(); } }
 async function ddGo(){ dd_.close(); if(dd.mode === "add") await insertBook(dd.d); else await updateBook(dd.d); }
-function refresh(){ loadA(); loadStats(); load(); refreshNextNo(); }
+function refresh(){ loadA(); loadStats(); load(); refreshNextNo(); if(scan) scanErrors(true); }
 
 /* tile (edit/delete only in admin) */
 function tile(b, adm){
@@ -630,6 +647,137 @@ async function exportPDF(){
   document.body.classList.add("printing");
   addEventListener("afterprint", () => { document.body.classList.remove("printing"); $("printarea").innerHTML = ""; }, {once:true});
   setTimeout(() => print(), 150);
+}
+
+/* ===== දෝෂ සොයන්නා ===== */
+let scan = null;
+const ERR_TYPES = [
+  {id:"empty", label:"හිස් පේළි (සියලු දත්ත හිස්)", on:true},
+  {id:"notitle", label:"පොතේ නම නැත", on:true},
+  {id:"dupname", label:"නම + කොටස සමාන (Duplicate Name)", on:true},
+  {id:"dupno", label:"පොත් අංකය සමාන (Duplicate Number)", on:true},
+  {id:"nonum", label:"පොත් අංකය නැත", on:true},
+  {id:"dupisbn", label:"ISBN සමාන (Duplicate ISBN)", on:true},
+  {id:"badloc", label:"වැරදි රාක්ක / තට්ටු අගයන්", on:true},
+  {id:"noloc", label:"රාක්කය හෝ තට්ටුව නැත", on:false},
+  {id:"badprice", label:"මිල නැත / 0 / සෘණ", on:true},
+  {id:"badyear", label:"මුද්‍රිත වර්ෂය වැරදි", on:true},
+  {id:"noyear", label:"මුද්‍රිත වර්ෂය නැත", on:false},
+  {id:"badpages", label:"පිටු ගණන වැරදි (0 හෝ සෘණ)", on:true},
+  {id:"space", label:"අමතර හිස් ඉඩ (මුල/අග/දෙගුණ)", on:true}
+];
+$("errtypes").innerHTML = ERR_TYPES.map(t => `<label class="ck"><input type="checkbox" id="et_${t.id}" ${t.on ? "checked" : ""}>${t.label}</label>`).join("");
+const errAll = v => ERR_TYPES.forEach(t => $("et_"+t.id).checked = v);
+const TEXTF = ["title","volume","author","subject","publisher","isbn","book_number","rack_number","shelf_number"];
+const norm = v => String(v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+const rowEmpty = r => F.every(k => r[k] == null || String(r[k]).trim() === "");
+const spaceBad = (r, k) => typeof r[k] === "string" && r[k] !== r[k].trim().replace(/\s+/g, " ");
+const filled = r => F.filter(k => r[k] != null && String(r[k]).trim() !== "").length;
+const byBest = (a, b) => filled(b) - filled(a) || a.id - b.id;      /* වැඩිම දත්ත ඇති පොත මුලින් */
+function groupDup(list, keyFn){
+  const m = new Map(); list.forEach(r => { const k = keyFn(r); if(!m.has(k)) m.set(k, []); m.get(k).push(r); });
+  return [...m.values()].filter(g => g.length > 1).map(g => g.sort((a, b) => a.id - b.id)).sort((a, b) => a[0].id - b[0].id);
+}
+const single = (list, fn) => list.filter(fn).map(r => [r]);
+const locParts = r => [String(r.rack_number ?? "").trim(), String(r.shelf_number ?? "").trim()];
+const CHECK = {
+  empty: (all) => single(all, rowEmpty),
+  notitle: (l) => single(l, r => !norm(r.title)),
+  dupname: (l) => groupDup(l.filter(r => norm(r.title)), r => norm(r.title) + "|" + norm(r.volume)),
+  dupno: (l) => groupDup(l.filter(r => norm(r.book_number)), r => norm(r.book_number)),
+  nonum: (l) => single(l, r => !norm(r.book_number)),
+  dupisbn: (l) => groupDup(l.filter(r => norm(r.isbn)), r => norm(r.isbn).replace(/[-\s]/g, "")),
+  badloc: (l) => single(l, r => { const [rk, sh] = locParts(r); return (rk && !RACKS.includes(rk)) || (sh && !shelvesFor(rk).includes(sh)); }),
+  noloc: (l) => single(l, r => { const [rk, sh] = locParts(r); return !rk || !sh; }),
+  badprice: (l) => single(l, r => r.price == null || Number(r.price) <= 0),
+  badyear: (l) => single(l, r => r.print_year != null && (Number(r.print_year) < 1400 || Number(r.print_year) > NOWY)),
+  noyear: (l) => single(l, r => r.print_year == null),
+  badpages: (l) => single(l, r => r.pages != null && Number(r.pages) <= 0),
+  space: (l) => single(l, r => TEXTF.some(k => spaceBad(r, k)))
+};
+const BULK = {
+  empty: "🗑 සියල්ල මකන්න",
+  nonum: "🔢 ස්වයංක්‍රීය අංක ලබා දෙන්න",
+  dupno: "🔢 එක් පොතක් තබා අන් ඒවාට නව අංක ලබා දෙන්න",
+  dupname: "🗑 සෑම කණ්ඩායමකම එක් පොතක් තබා අන් ඒවා මකන්න",
+  dupisbn: "🗑 සෑම කණ්ඩායමකම එක් පොතක් තබා අන් ඒවා මකන්න",
+  space: "✂ සියල්ල නිවැරදි කරන්න"
+};
+function rowText(b){
+  const extra = [b.author, locOf(b), b.isbn && "ISBN " + b.isbn, b.price != null && money(b.price), b.print_year, b.pages != null && b.pages + " පිටු"].filter(Boolean).join(" · ");
+  return `#${b.id} · ${b.title || "(නම නැත)"}${b.volume ? " — " + b.volume : ""}${extra ? " · " + extra : ""}`;
+}
+async function scanErrors(silent){
+  const types = ERR_TYPES.filter(t => $("et_"+t.id).checked);
+  if(!types.length){ $("errsum").textContent = "අවම වශයෙන් දෝෂ වර්ගයක් තෝරන්න."; return; }
+  if(!silent) $("errsum").textContent = "පරීක්ෂා කරමින්...";
+  const rows = await allRows(); if(!rows) return;
+  rows.forEach(r => cache[r.id] = r);
+  const live = rows.filter(r => !rowEmpty(r));
+  const results = types.map(t => ({id:t.id, label:t.label, groups:CHECK[t.id](t.id === "empty" ? rows : live)})).filter(r => r.groups.length);
+  scan = {rows, results};
+  const n = results.reduce((a, r) => a + r.groups.length, 0);
+  $("errsum").textContent = `පොත් ${rows.length}ක් පරීක්ෂා කළා — දෝෂ වර්ග ${results.length}ක්, සිදුවීම් ${n}ක් හමු විය.`;
+  renderErrors();
+}
+function renderErrors(){
+  const el = $("errres");
+  if(!scan.results.length){ el.innerHTML = `<div class="ok">✔ තෝරාගත් වර්ග අනුව දෝෂ කිසිවක් නැත.</div>`; return; }
+  el.innerHTML = scan.results.map(res => {
+    const shown = res.groups.slice(0, 100);
+    const body = shown.map((g, gi) => `<div class="${g.length > 1 ? "eg" : ""}">` +
+      (g.length > 1 ? `<small>සමාන පොත් ${g.length}ක්</small> <button class="g" style="padding:1px 8px;font-size:12px" onclick="errKeep('${res.id}',${gi})">${res.id === "dupno" ? "නව අංක ලබා දෙන්න" : "එක් පොතක් තබා අන් ඒවා මකන්න"}</button>` : "") +
+      g.map(b => `<div class="er"><span>${esc(rowText(b))}${res.id === "space" ? ` <small>⚠ ${TEXTF.filter(k => spaceBad(b, k)).join(", ")}</small>` : ""}</span>
+        <span class="row" style="flex-shrink:0"><button class="g" style="padding:2px 8px;font-size:12px" onclick="openEdit(${b.id})">Ed</button><button class="d" style="padding:2px 8px;font-size:12px" onclick="del(${b.id})">Dlt</button></span></div>`).join("") + `</div>`).join("");
+    return `<details class="card" ${res.groups.length <= 8 ? "open" : ""}><summary><b>${res.label}</b> — ${res.groups.length}</summary>
+      ${BULK[res.id] ? `<div style="margin:8px 0"><button onclick="errBulk('${res.id}')">${BULK[res.id]}</button></div>` : ""}
+      ${body}${res.groups.length > 100 ? `<div style="color:var(--mu);font-size:13px">... තවත් ${res.groups.length - 100}ක් ඇත (පළමු 100 පමණක් පෙන්වයි).</div>` : ""}</details>`;
+  }).join("");
+}
+async function delIds(ids){
+  for(let i = 0; i < ids.length; i += 100){
+    const {error} = await sb.from("books").delete().in("id", ids.slice(i, i + 100)); if(error) throw error;
+  }
+}
+async function updList(list){
+  for(let i = 0; i < list.length; i += 10){
+    const rs = await Promise.all(list.slice(i, i + 10).map(([id, patch]) => sb.from("books").update(patch).eq("id", id)));
+    const bad = rs.find(r => r.error); if(bad) throw bad.error;
+  }
+}
+function newNumbers(targets){
+  const used = new Set(scan.rows.map(r => String(r.book_number ?? "").trim()).filter(Boolean));
+  let n = 1; return targets.map(b => { while(used.has(String(n))) n++; used.add(String(n)); return [b.id, {book_number:String(n)}]; });
+}
+const restOf = g => [...g].sort(byBest).slice(1);
+async function errRun(fn){
+  try{ await fn(); toast("නිවැරදි කළා ✔"); refresh(); } catch(e){ alert("දෝෂයක්: " + (e.message || e)); }
+}
+function errKeep(type, gi){
+  const g = scan.results.find(r => r.id === type).groups[gi], rest = restOf(g);
+  if(type === "dupno"){
+    if(!confirm(`පොත් ${rest.length}කට නව පොත් අංක ලබා දෙන්නද?`)) return;
+    errRun(() => updList(newNumbers(rest.sort((a, b) => a.id - b.id)))); return;
+  }
+  if(!confirm(`පොත් ${rest.length}ක් මකන්නද? (වැඩිම දත්ත සහිත එක තබා ගනී)`)) return;
+  errRun(() => delIds(rest.map(b => b.id)));
+}
+function errBulk(type){
+  const res = scan.results.find(r => r.id === type), flat = res.groups.flat();
+  if(type === "empty"){ if(confirm(`හිස් පේළි ${flat.length}ක් මකන්නද?`)) errRun(() => delIds(flat.map(b => b.id))); return; }
+  if(type === "nonum"){ if(confirm(`පොත් ${flat.length}කට අංක ලබා දෙන්නද?`)) errRun(() => updList(newNumbers([...flat].sort((a, b) => a.id - b.id)))); return; }
+  if(type === "dupno"){
+    const rest = res.groups.flatMap(restOf).sort((a, b) => a.id - b.id);
+    if(confirm(`පොත් ${rest.length}කට නව අංක ලබා දෙන්නද?`)) errRun(() => updList(newNumbers(rest))); return;
+  }
+  if(type === "dupname" || type === "dupisbn"){
+    const rest = res.groups.flatMap(restOf);
+    if(confirm(`කණ්ඩායම් ${res.groups.length}ක අතිරික්ත පොත් ${rest.length}ක් මකන්නද? (සෑම කණ්ඩායමකම වැඩිම දත්ත සහිත එක තබා ගනී)`)) errRun(() => delIds(rest.map(b => b.id))); return;
+  }
+  if(type === "space"){
+    const list = flat.map(b => { const patch = {}; TEXTF.forEach(k => { if(spaceBad(b, k)) patch[k] = clean(b[k].trim().replace(/\s+/g, " ")); }); return [b.id, patch]; });
+    if(confirm(`පොත් ${list.length}ක අමතර හිස් ඉඩ ඉවත් කරන්නද?`)) errRun(() => updList(list));
+  }
 }
 
 /* start */
