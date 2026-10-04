@@ -243,7 +243,7 @@ const clean = v => { v = (v ?? "").toString().trim(); return v === "" ? null : v
 const money = n => "Rs." + Number(n || 0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
 
 /* valuation: මුද්‍රිත වර්ෂයේ සිට වර්ෂයකට GROWTH ප්‍රතිශතයකින් වැඩිවේ. COMPOUND=false නම් සරල (මුල් මිලෙන් 30%) */
-const GROWTH = 0.30, COMPOUND = true, NOWY = new Date().getFullYear();
+const GROWTH = 0.05, COMPOUND = true, NOWY = new Date().getFullYear();
 const NUM = ["price","print_year","pages"];
 const numFix = o => { NUM.forEach(k => { if(o[k] !== null){ const n = parseFloat(o[k]); o[k] = isNaN(n) ? null : (k === "price" ? n : Math.round(n)); } }); return o; };
 const hasAdj = b => b.price != null && Number(b.print_year) > 0 && Number(b.print_year) <= NOWY;
