@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>මගේ පුස්තකාලය</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#f6f5f1;--card:#fff;--tx:#1d1d1b;--mu:#6b6b66;--ac:#1d5c4a;--bd:#ddd9ce;--rd:#b3261e}
 @media(prefers-color-scheme:dark){:root{--bg:#161614;--card:#211f1d;--tx:#efece4;--mu:#9b978c;--ac:#4fb394;--bd:#38352f;--rd:#f2766e}}
@@ -62,10 +63,25 @@ td.n,th.n{text-align:right;white-space:nowrap}
 #sug div.on,#sug div:hover{background:var(--bg)}
 #sug small{color:var(--mu)}
 dialog{border:1px solid var(--bd);border-radius:12px;background:var(--card);color:var(--tx);width:min(560px,92vw)}
+.dd-new{background:var(--bg);border:1px dashed var(--bd);border-radius:8px;padding:8px 10px;font-size:14px;margin-bottom:10px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#222;color:#fff;padding:8px 16px;border-radius:20px;font-size:14px;z-index:99}
+#printarea{display:none}
+@media print{
+ @page{size:A4 landscape;margin:10mm}
+ body.printing{background:#fff}
+ body.printing .wrap,body.printing dialog,body.printing #toast,body.printing #sug{display:none!important}
+ body.printing #printarea{display:block;color:#000;background:#fff;font-family:"Noto Sans Sinhala","Iskoola Pota",system-ui,sans-serif}
+ #printarea h2{margin:0 0 4px;font-size:16px}#printarea p{margin:0 0 8px;font-size:11px}
+ #printarea table{font-size:9px;width:100%;border-collapse:collapse}
+ #printarea th,#printarea td{border:1px solid #888;padding:3px 4px;vertical-align:top;word-break:break-word}
+ #printarea th{background:#e8e8e8}#printarea thead{display:table-header-group}#printarea tr{page-break-inside:avoid}
+}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 </style>
 </head>
 <body>
+<div id="toast" class="hide"></div>
+<div id="printarea"></div>
 <div class="wrap">
 
 <div class="bar"><h1>📚 මගේ පුස්තකාලය</h1></div>
@@ -88,7 +104,7 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
   </div>
 
   <div id="pop" class="hide">
-    <div class="ph"><b id="pcnt"></b><button class="g" onclick="closePop()">✕ වසන්න</button></div>
+    <div class="ph"><b id="pcnt"></b><span class="row"><button class="g" onclick="copyResults()">📋 සියල්ල Copy</button><button class="g" onclick="closePop()">✕ වසන්න</button></span></div>
     <div class="pb"><div id="ptiles" class="tiles"></div>
       <div class="pager"><button class="g" onclick="popGo(-1)">← පෙර</button><span id="ppg"></span><button class="g" onclick="popGo(1)">ඊළඟ →</button></div></div>
   </div>
@@ -112,6 +128,9 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
   <div id="apanel" class="hide">
     <div class="bar"><b>සංඛ්‍යාන</b><button class="g" onclick="signOut()">Logout</button></div>
     <div class="kpis" id="kpis"></div>
+    <div class="card"><b>දත්ත Download කරන්න</b>
+      <div class="row" style="margin-top:8px"><button onclick="exportXLSX()">⬇ Excel (.xlsx)</button><button onclick="exportPDF()">⬇ PDF</button>
+        <span style="font-size:12px;color:var(--mu)">PDF සඳහා print කවුළුවේ "Save as PDF" තෝරන්න.</span></div></div>
     <div class="card"><b>විෂයයන් අනුව පොත් ගණන</b>
       <div style="overflow:auto;margin-top:8px"><table id="subj"></table></div>
     </div>
@@ -129,7 +148,8 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
       <div id="msg"></div>
     </div>
 
-    <div class="row" style="margin-bottom:8px"><b id="acnt">සියලු පොත්</b></div>
+    <div class="row" style="margin-bottom:8px"><b id="acnt">සියලු පොත්</b><span style="flex:1"></span>
+      <input id="aq" placeholder="🔍 සංස්කරණයට පොතක් සොයන්න..." style="max-width:320px" oninput="clearTimeout(window.at);window.at=setTimeout(()=>{apage=0;loadA()},300)"></div>
     <div id="atiles" class="tiles"></div>
     <div class="pager"><button class="g" onclick="goA(-1)">← පෙර</button><span id="apg"></span><button class="g" onclick="goA(1)">ඊළඟ →</button></div>
   </div>
@@ -139,10 +159,27 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
 
 <!-- Edit dialog (admin only) -->
 <dialog id="ed">
-  <h3 style="margin-top:0">පොත සංස්කරණය</h3>
+  <h3 style="margin:0 0 4px">පොත සංස්කරණය</h3>
+  <div id="etitle" style="font-size:13px;color:var(--mu);margin-bottom:10px"></div>
   <div class="grid" id="editf"></div>
-  <div class="row"><button onclick="saveEdit()">සුරකින්න</button><button class="g" onclick="ed.close()">අවලංගු</button></div>
+  <div class="row">
+    <button onclick="saveEdit()">සුරකින්න</button>
+    <button class="g" onclick="ed.close()">අවලංගු</button>
+    <span style="flex:1"></span>
+    <button class="d" onclick="delFromEdit()">🗑 Delete</button>
+  </div>
   <div id="emsg" style="color:var(--rd);font-size:13px;margin-top:6px"></div>
+</dialog>
+
+<!-- Duplicate dialog -->
+<dialog id="dd">
+  <h3 style="margin:0 0 8px">⚠ මෙම නමින් (සහ කොටසින්) පොතක් දැනටමත් ඇත</h3>
+  <div class="dd-new" id="ddnew"></div>
+  <div id="ddlist"></div>
+  <div class="row" style="margin-top:10px">
+    <button id="ddgo" onclick="ddGo()"></button>
+    <button class="g" onclick="dd_.close()">අවලංගු</button>
+  </div>
 </dialog>
 
 <script>
@@ -215,7 +252,7 @@ function showDup(dups){
   const el = $("dup");
   if(!dups.length){ el.classList.add("hide"); return; }
   el.innerHTML = "⚠ <b>මෙම නමින් පොතක් දැනටමත් ඇත!</b>" + dups.map(b =>
-    `<div>• ${esc(b.title)}${b.volume ? " — " + esc(b.volume) : ""}${b.author ? " — " + esc(b.author) : ""}${locOf(b) ? " (" + esc(locOf(b)) + ")" : ""} <button class="g" onclick="openEdit(${b.id})">Ed</button></div>`).join("");
+    `<div>• ${esc(b.title)}${b.volume ? " — " + esc(b.volume) : ""}${b.author ? " — " + esc(b.author) : ""}${locOf(b) ? " (" + esc(locOf(b)) + ")" : ""} <button class="g" onclick="openEdit(${b.id})">Ed</button> <button class="g" onclick="delDup(${b.id})">Dlt</button></div>`).join("");
   el.classList.remove("hide");
 }
 async function checkDup(){ showDup(await findDups(readForm("f_"))); }
@@ -278,34 +315,62 @@ addEventListener("scroll", e => { if(e.target !== sug) hideSug(); }, true);
 addEventListener("resize", hideSug);
 
 /* CRUD (admin) */
-async function addBook(){
-  const d = readForm("f_");
-  if(isEmpty(d)){ say("අවම වශයෙන් එක් දත්තයක් හෝ ඇතුළත් කරන්න."); return; }
-  const dups = await findDups(d);
-  if(dups.length && !confirm("මෙම නමින් (සහ කොටසින්) පොතක් දැනටමත් ඇත. එසේ වුවත් නැවත ඇතුළත් කරන්නද?")){ showDup(dups); return; }
+async function insertBook(d){
   const {error} = await sb.from("books").insert(d);
   if(error){ say("දෝෂයක්: " + error.message); return; }
   say("ඇතුළත් කළා ✔"); resetAdd(); refresh();
 }
+async function updateBook(d){
+  const {error} = await sb.from("books").update(d).eq("id", editId);
+  if(error){ $("emsg").textContent = error.message; return; }
+  $("ed").close(); refresh();
+}
+async function addBook(){
+  const d = readForm("f_");
+  if(isEmpty(d)){ say("අවම වශයෙන් එක් දත්තයක් හෝ ඇතුළත් කරන්න."); return; }
+  const dups = await findDups(d);
+  if(dups.length){ openDD(dups, d, "add"); return; }
+  insertBook(d);
+}
 function openEdit(id){
   const b = cache[id]; editId = id; $("emsg").textContent = "";
-  F.forEach(k => $("e_"+k).value = b[k] ?? ""); $("ed").showModal();
+  $("etitle").textContent = "ID " + id + " — " + (b.title || "(නම නැත)");
+  F.forEach(k => $("e_"+k).value = b[k] ?? ""); if(!$("ed").open) $("ed").showModal();
 }
 async function saveEdit(){
   const d = readForm("e_");
   if(isEmpty(d)){ $("emsg").textContent = "සියල්ල හිස් විය නොහැක."; return; }
   const dups = await findDups(d, editId);
-  if(dups.length && !confirm("මෙම නමින් (සහ කොටසින්) වෙනත් පොතක් දැනටමත් ඇත. එසේ වුවත් සුරකින්නද?")) return;
-  const {error} = await sb.from("books").update(d).eq("id", editId);
-  if(error){ $("emsg").textContent = error.message; return; }
-  $("ed").close(); refresh();
+  if(dups.length){ openDD(dups, d, "edit"); return; }
+  updateBook(d);
 }
 async function del(id){
   const b = cache[id];
-  if(!confirm(`"${b.title || "නම නැති පොත"}" මකන්නද?`)) return;
+  if(!confirm(`"${b.title || "නම නැති පොත"}" මකන්නද?`)) return false;
   const {error} = await sb.from("books").delete().eq("id", id);
-  if(error) alert(error.message); else refresh();
+  if(error){ alert(error.message); return false; }
+  refresh(); return true;
 }
+async function delFromEdit(){ if(await del(editId)) $("ed").close(); }
+async function delDup(id){ if(await del(id)) checkDup(); }
+
+/* duplicate dialog */
+const dd_ = $("dd"); let dd = {dups:[], d:null, mode:"add"};
+function ddRender(){
+  $("ddlist").innerHTML = dd.dups.map(b => `<div class="card" style="margin-bottom:8px"><b>${esc(b.title)}</b>${b.volume ? " — " + esc(b.volume) : ""}
+    <div style="font-size:13px;color:var(--mu)">${[b.author, b.subject, locOf(b), b.price != null ? money(b.price) : ""].filter(Boolean).map(esc).join(" · ")}</div>
+    <div class="row" style="margin-top:6px"><button class="g" onclick="ddEdit(${b.id})">✎ ඇති පොත සංස්කරණය</button><button class="d" onclick="ddDel(${b.id})">🗑 ඇති පොත Delete</button></div></div>`).join("")
+    || `<div style="color:var(--mu);margin-bottom:6px">සමාන පොත් තවත් නැත ✔</div>`;
+}
+function openDD(dups, d, mode){
+  dd = {dups, d, mode};
+  $("ddnew").innerHTML = (mode === "add" ? "<b>ඇතුළත් කිරීමට යන පොත:</b> " : "<b>සුරකින්නට යන පොත:</b> ") + esc(d.title || "") + (d.volume ? " — " + esc(d.volume) : "") + (d.author ? " · " + esc(d.author) : "");
+  $("ddgo").textContent = mode === "add" ? "සමාන නමක් සහිත නව පොතක් ලෙස ඇතුළත් කරන්න" : "එසේ වුවත් මෙලෙස සුරකින්න";
+  ddRender(); dd_.showModal();
+}
+function ddEdit(id){ dd_.close(); openEdit(id); }
+async function ddDel(id){ if(await del(id)){ dd.dups = dd.dups.filter(b => b.id !== id); ddRender(); } }
+async function ddGo(){ dd_.close(); if(dd.mode === "add") await insertBook(dd.d); else await updateBook(dd.d); }
 function refresh(){ loadA(); loadStats(); load(); }
 
 /* tile (edit/delete only in admin) */
@@ -317,7 +382,7 @@ function tile(b, adm){
     <div class="th" style="background:${c.bg}"><div class="tt">${esc(b.title) || "(නම නැත)"}</div>${b.volume ? `<div class="tv">${esc(b.volume)}</div>` : ""}</div>
     <div class="tb">${b.author ? `<div>${esc(b.author)}</div><hr style="border-color:${c.bd}">` : ""}
       ${b.subject ? `<div>${esc(b.subject)}</div>` : ""}${b.isbn ? `<div>ISBN ${esc(b.isbn)}</div>` : ""}${loc ? `<div><b>${esc(loc)}</b></div>` : ""}</div>
-    <div class="tf"><span>${price}</span>${adm ? `<span class="row"><button class="g" onclick="openEdit(${b.id})">Ed</button><button class="d" onclick="del(${b.id})">Dlt</button></span>` : ""}</div></div>`;
+    <div class="tf"><span>${price}</span>${adm ? `<span class="row"><button class="g" onclick="openEdit(${b.id})">Ed</button><button class="d" onclick="del(${b.id})">Dlt</button></span>` : `<button class="g" title="Copy" onclick="copyBook(${b.id})">📋 Copy</button>`}</div></div>`;
 }
 
 /* queries */
@@ -345,9 +410,12 @@ async function load(){
 }
 function go(n){ if(page + n < 0) return; page += n; load(); }
 async function loadA(){
-  const {data, count, error} = await fetchBooks(apage, SIZE, false);
+  let qb = sb.from("books").select("*", {count:"exact"}).range(apage*SIZE, apage*SIZE + SIZE - 1).order("id", {ascending:false});
+  const aq = $("aq").value.replace(/[,()%*]/g, " ").trim();
+  if(aq) qb = qb.or(["title","author","subject","isbn","book_number"].map(c => `${c}.ilike.%${aq}%`).join(","));
+  const {data, count, error} = await qb;
   if(error){ $("acnt").textContent = error.message; return; }
-  $("acnt").textContent = `සියලු පොත් (${count ?? 0}) — අලුත්ම ඒවා මුලින්`;
+  $("acnt").textContent = `${aq ? "සෙවුම් ප්‍රතිඵල" : "සියලු පොත්"} (${count ?? 0})`;
   $("apg").textContent = "පිටුව " + (apage+1);
   $("atiles").innerHTML = data.map(b => tile(b, true)).join("") || `<div style="color:var(--mu)">පොත් නැත</div>`;
 }
@@ -406,7 +474,7 @@ async function loadPop(){
 }
 function popGo(n){ if(popPage + n < 0) return; popPage += n; loadPop(); }
 addEventListener("resize", () => { if(!$("pop").classList.contains("hide")) placePop(); });
-addEventListener("keydown", e => { if(e.key === "Escape" && !$("ed").open) closePop(); });
+addEventListener("keydown", e => { if(e.key === "Escape" && !$("ed").open && !$("dd").open) closePop(); });
 
 /* CSV import */
 function parseCSV(t,d){
@@ -449,6 +517,63 @@ async function importCSV(file){
     say(`Import කරමින්... ${Math.min(i+500, fresh.length)} / ${fresh.length}`);
   }
   say(`පොත් ${fresh.length}ක් Import කළා ✔` + (skipped ? ` (නම සහ කොටස සමාන නිසා ${skipped}ක් මඟ හැරියා)` : "")); $("csv").value = ""; refresh();
+}
+
+/* copy */
+function toast(t){ const e = $("toast"); e.textContent = t; e.classList.remove("hide"); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.add("hide"), 2200); }
+async function copyText(t){
+  try{ await navigator.clipboard.writeText(t); }
+  catch(e){ const a = document.createElement("textarea"); a.value = t; document.body.appendChild(a); a.select(); document.execCommand("copy"); a.remove(); }
+  toast("Copy කළා ✔");
+}
+const bookLine = b => [b.title + (b.volume ? " (" + b.volume + ")" : ""), b.author, b.subject, b.isbn && "ISBN " + b.isbn, locOf(b), b.price != null && money(b.price)].filter(Boolean).join(" | ");
+function copyBook(id){ copyText(bookLine(cache[id])); }
+async function copyResults(){
+  toast("සූදානම් කරමින්...");
+  const sorted = clean($("fr").value) || clean($("fs").value), rows = [];
+  for(let p = 0; ; p++){
+    let qb = applyFilter(sb.from("books").select("*"));
+    qb = sorted ? qb.order("rack_number").order("shelf_number").order("book_number") : qb.order("id", {ascending:false});
+    const {data, error} = await qb.range(p*1000, p*1000 + 999);
+    if(error){ toast(error.message); return; }
+    rows.push(...data); if(data.length < 1000) break;
+  }
+  copyText(rows.map((b, i) => (i+1) + ". " + bookLine(b)).join("\n"));
+}
+
+/* export (admin) */
+async function allRows(){
+  const rows = [];
+  for(let p = 0; ; p++){
+    const {data, error} = await sb.from("books").select("*").order("id").range(p*1000, p*1000 + 999);
+    if(error){ alert(error.message); return null; }
+    rows.push(...data); if(data.length < 1000) break;
+  }
+  return rows;
+}
+function exportCols(rows){
+  const keys = new Set(); rows.forEach(r => Object.keys(r).forEach(k => keys.add(k)));
+  const lab = Object.fromEntries(FIELDS.map(f => [f[0], f[1].replace(/\s*\(.*\)/, "")]));
+  return ["id", ...F, ...[...keys].filter(k => k !== "id" && !F.includes(k))].filter(k => keys.has(k)).map(k => [k, lab[k] || k]);
+}
+const stamp = () => new Date().toISOString().slice(0, 10);
+async function exportXLSX(){
+  if(!window.XLSX){ alert("Excel library එක load වී නැත (Internet පරීක්ෂා කරන්න)."); return; }
+  toast("සූදානම් කරමින්..."); const rows = await allRows(); if(!rows) return;
+  const c = exportCols(rows);
+  const ws = XLSX.utils.aoa_to_sheet([c.map(x => x[1]), ...rows.map(r => c.map(([k]) => r[k] ?? ""))]);
+  ws["!cols"] = c.map(([k]) => ({wch: k === "title" || k === "author" || k === "subject" ? 28 : 14}));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Books");
+  XLSX.writeFile(wb, "library-" + stamp() + ".xlsx"); toast("Excel Download වෙමින් ✔");
+}
+async function exportPDF(){
+  toast("සූදානම් කරමින්..."); const rows = await allRows(); if(!rows) return;
+  const c = exportCols(rows), total = rows.reduce((s, r) => s + (Number(r.price) || 0), 0);
+  $("printarea").innerHTML = `<h2>📚 මගේ පුස්තකාලය</h2><p>${stamp()} · පොත් ගණන: ${rows.length} · සමස්ත වටිනාකම: ${money(total)}</p>
+    <table><thead><tr>${c.map(x => `<th>${esc(x[1])}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${c.map(([k]) => `<td>${esc(r[k])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  document.body.classList.add("printing");
+  addEventListener("afterprint", () => { document.body.classList.remove("printing"); $("printarea").innerHTML = ""; }, {once:true});
+  setTimeout(() => print(), 150);
 }
 
 /* start */
