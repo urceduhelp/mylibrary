@@ -154,6 +154,25 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
     </div>
 
     <div class="card">
+      <b>✏ නම් ඒකාබද්ධ කරන්න / වෙනස් කරන්න</b>
+      <div style="font-size:12px;color:var(--mu);margin-top:2px">එකම නමේ විවිධ ආකාර (උදා: ඇස් ගොඩගේ / එස් ගොඩගේ / ගොඩගේ සමාගම) තෝරා තනි නමකට වෙනස් කරන්න.</div>
+      <div class="row" style="margin:10px 0">
+        <select id="mf" style="width:150px" onchange="mergeLoad()"><option value="publisher">ප්‍රකාශකයා</option><option value="author">කතුවරයා</option><option value="subject">විෂයය</option><option value="volume">කොටස</option></select>
+        <input id="mq" placeholder="🔍 සොයන්න (උදා: ගොඩගේ)" oninput="mergeRender()" style="max-width:260px">
+        <button class="g" onclick="mSelAll(true)">පෙන්වන සියල්ල තෝරන්න</button>
+        <button class="g" onclick="mSelAll(false)">තේරීම් ඉවත් කරන්න</button>
+        <button class="g" onclick="mergeLoad()">↻</button>
+        <button class="g" id="mtg" onclick="mToggleHid()">සැඟවූ ඒවා පෙන්වන්න</button>
+      </div>
+      <div id="mlist" style="max-height:320px;overflow:auto;border:1px solid var(--bd);border-radius:8px;padding:2px 10px"></div>
+      <div id="mmsg" style="font-size:13px;color:var(--mu);margin:6px 0"></div>
+      <div class="row">
+        <input id="mto" placeholder="නව (තනි) නම" style="max-width:300px">
+        <button onclick="mergeApply()">තෝරාගත් නම් මෙයට වෙනස් කරන්න</button>
+      </div>
+    </div>
+
+    <div class="card">
       <b>නව පොතක් ඇතුළත් කරන්න</b> <span style="font-size:12px;color:var(--mu)">(පොත් අංකය ස්වයංක්‍රීයව ලැබේ; අවශ්‍ය නම් වෙනස් කළ හැක)</span>
       <div class="grid" id="addf" style="margin-top:10px"></div>
       <div id="dup" class="warn hide"></div>
@@ -224,7 +243,7 @@ const clean = v => { v = (v ?? "").toString().trim(); return v === "" ? null : v
 const money = n => "Rs." + Number(n || 0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
 
 /* valuation: මුද්‍රිත වර්ෂයේ සිට වර්ෂයකට GROWTH ප්‍රතිශතයකින් වැඩිවේ. COMPOUND=false නම් සරල (මුල් මිලෙන් 30%) */
-const GROWTH = 0.05, COMPOUND = true, NOWY = new Date().getFullYear();
+const GROWTH = 0.30, COMPOUND = true, NOWY = new Date().getFullYear();
 const NUM = ["price","print_year","pages"];
 const numFix = o => { NUM.forEach(k => { if(o[k] !== null){ const n = parseFloat(o[k]); o[k] = isNaN(n) ? null : (k === "price" ? n : Math.round(n)); } }); return o; };
 const hasAdj = b => b.price != null && Number(b.print_year) > 0 && Number(b.print_year) <= NOWY;
@@ -287,7 +306,7 @@ async function checkAdmin(){
   const {data} = await sb.auth.getSession();
   isAdmin = !!data.session;
   $("alogin").classList.toggle("hide", isAdmin); $("apanel").classList.toggle("hide", !isAdmin);
-  if(isAdmin){ loadA(); loadStats(); refreshNextNo(); }
+  if(isAdmin){ loadA(); loadStats(); refreshNextNo(); mergeLoad(); }
 }
 async function signIn(){
   $("lmsg").textContent = "";
@@ -707,6 +726,10 @@ function rowText(b){
   const extra = [b.author, locOf(b), b.isbn && "ISBN " + b.isbn, b.price != null && money(b.price), b.print_year, b.pages != null && b.pages + " පිටු"].filter(Boolean).join(" · ");
   return `#${b.id} · ${b.title || "(නම නැත)"}${b.volume ? " — " + b.volume : ""}${extra ? " · " + extra : ""}`;
 }
+const loadSet = k => { try{ return new Set(JSON.parse(localStorage.getItem(k) || "[]")); }catch(e){ return new Set(); } };
+const saveSet = (k, st) => { try{ localStorage.setItem(k, JSON.stringify([...st])); }catch(e){} };
+let dismissed = loadSet("lib_dismissed"), errShowDis = false;
+const gkey = (type, g) => type + ":" + g.map(b => b.id).join(",");
 async function scanErrors(silent){
   const types = ERR_TYPES.filter(t => $("et_"+t.id).checked);
   if(!types.length){ $("errsum").textContent = "අවම වශයෙන් දෝෂ වර්ගයක් තෝරන්න."; return; }
@@ -714,21 +737,40 @@ async function scanErrors(silent){
   const rows = await allRows(); if(!rows) return;
   rows.forEach(r => cache[r.id] = r);
   const live = rows.filter(r => !rowEmpty(r));
-  const results = types.map(t => ({id:t.id, label:t.label, groups:CHECK[t.id](t.id === "empty" ? rows : live)})).filter(r => r.groups.length);
-  scan = {rows, results};
-  const n = results.reduce((a, r) => a + r.groups.length, 0);
-  $("errsum").textContent = `පොත් ${rows.length}ක් පරීක්ෂා කළා — දෝෂ වර්ග ${results.length}ක්, සිදුවීම් ${n}ක් හමු විය.`;
+  const raw = types.map(t => ({id:t.id, label:t.label, groups:CHECK[t.id](t.id === "empty" ? rows : live)})).filter(r => r.groups.length);
+  scan = {rows, raw, results:[], hid:0};
+  applyScan();
+}
+function applyScan(){
+  let hid = 0;
+  scan.results = scan.raw.map(r => {
+    hid += r.groups.filter(g => dismissed.has(gkey(r.id, g))).length;
+    return {id:r.id, label:r.label, groups:errShowDis ? r.groups : r.groups.filter(g => !dismissed.has(gkey(r.id, g)))};
+  }).filter(r => r.groups.length);
+  scan.hid = hid;
+  const n = scan.results.reduce((a, r) => a + r.groups.length, 0);
+  $("errsum").innerHTML = `පොත් ${scan.rows.length}ක් පරීක්ෂා කළා — දෝෂ වර්ග ${scan.results.length}ක්, සිදුවීම් ${n}ක් ${errShowDis ? "(සැඟවූ ඒවා ඇතුළුව)" : ""}` +
+    (hid || errShowDis ? ` <button class="g" style="padding:1px 8px;font-size:12px" onclick="errToggleDis()">${errShowDis ? "සැඟවූ ඒවා සඟවන්න" : "සැඟවූ " + hid + "ක් පෙන්වන්න"}</button>` : "");
   renderErrors();
+}
+function errToggleDis(){ errShowDis = !errShowDis; applyScan(); }
+function errDismiss(type, gi){
+  const g = scan.results.find(r => r.id === type).groups[gi], k = gkey(type, g);
+  dismissed.has(k) ? dismissed.delete(k) : dismissed.add(k); saveSet("lib_dismissed", dismissed); applyScan();
 }
 function renderErrors(){
   const el = $("errres");
-  if(!scan.results.length){ el.innerHTML = `<div class="ok">✔ තෝරාගත් වර්ග අනුව දෝෂ කිසිවක් නැත.</div>`; return; }
+  if(!scan.results.length){ el.innerHTML = `<div class="ok">✔ දෝෂ කිසිවක් ඉතිරි නැත.</div>`; return; }
   el.innerHTML = scan.results.map(res => {
     const shown = res.groups.slice(0, 100);
-    const body = shown.map((g, gi) => `<div class="${g.length > 1 ? "eg" : ""}">` +
-      (g.length > 1 ? `<small>සමාන පොත් ${g.length}ක්</small> <button class="g" style="padding:1px 8px;font-size:12px" onclick="errKeep('${res.id}',${gi})">${res.id === "dupno" ? "නව අංක ලබා දෙන්න" : "එක් පොතක් තබා අන් ඒවා මකන්න"}</button>` : "") +
+    const body = shown.map((g, gi) => {
+      const dis = dismissed.has(gkey(res.id, g));
+      const dbtn = `<button class="g" style="padding:2px 8px;font-size:12px" title="දෝෂයක් නොවේ / අවශ්‍ය නැත — ලැයිස්තුවෙන් ඉවත් කරන්න" onclick="errDismiss('${res.id}',${gi})">${dis ? "↩ නැවත" : "✕ ඉවත් කරන්න"}</button>`;
+      return `<div class="${g.length > 1 ? "eg" : ""}" style="${dis ? "opacity:.5" : ""}">` +
+      (g.length > 1 ? `<small>සමාන පොත් ${g.length}ක්</small> <button class="g" style="padding:1px 8px;font-size:12px" onclick="errKeep('${res.id}',${gi})">${res.id === "dupno" ? "නව අංක ලබා දෙන්න" : "එක් පොතක් තබා අන් ඒවා මකන්න"}</button> ${dbtn}` : "") +
       g.map(b => `<div class="er"><span>${esc(rowText(b))}${res.id === "space" ? ` <small>⚠ ${TEXTF.filter(k => spaceBad(b, k)).join(", ")}</small>` : ""}</span>
-        <span class="row" style="flex-shrink:0"><button class="g" style="padding:2px 8px;font-size:12px" onclick="openEdit(${b.id})">Ed</button><button class="d" style="padding:2px 8px;font-size:12px" onclick="del(${b.id})">Dlt</button></span></div>`).join("") + `</div>`).join("");
+        <span class="row" style="flex-shrink:0"><button class="g" style="padding:2px 8px;font-size:12px" onclick="openEdit(${b.id})">Ed</button><button class="d" style="padding:2px 8px;font-size:12px" onclick="del(${b.id})">Dlt</button>${g.length === 1 ? dbtn : ""}</span></div>`).join("") + `</div>`;
+    }).join("");
     return `<details class="card" ${res.groups.length <= 8 ? "open" : ""}><summary><b>${res.label}</b> — ${res.groups.length}</summary>
       ${BULK[res.id] ? `<div style="margin:8px 0"><button onclick="errBulk('${res.id}')">${BULK[res.id]}</button></div>` : ""}
       ${body}${res.groups.length > 100 ? `<div style="color:var(--mu);font-size:13px">... තවත් ${res.groups.length - 100}ක් ඇත (පළමු 100 පමණක් පෙන්වයි).</div>` : ""}</details>`;
@@ -763,21 +805,84 @@ function errKeep(type, gi){
   errRun(() => delIds(rest.map(b => b.id)));
 }
 function errBulk(type){
-  const res = scan.results.find(r => r.id === type), flat = res.groups.flat();
+  const res = scan.results.find(r => r.id === type), groups = res.groups.filter(g => !dismissed.has(gkey(type, g))), flat = groups.flat();
+  if(!groups.length) return;
   if(type === "empty"){ if(confirm(`හිස් පේළි ${flat.length}ක් මකන්නද?`)) errRun(() => delIds(flat.map(b => b.id))); return; }
   if(type === "nonum"){ if(confirm(`පොත් ${flat.length}කට අංක ලබා දෙන්නද?`)) errRun(() => updList(newNumbers([...flat].sort((a, b) => a.id - b.id)))); return; }
   if(type === "dupno"){
-    const rest = res.groups.flatMap(restOf).sort((a, b) => a.id - b.id);
+    const rest = groups.flatMap(restOf).sort((a, b) => a.id - b.id);
     if(confirm(`පොත් ${rest.length}කට නව අංක ලබා දෙන්නද?`)) errRun(() => updList(newNumbers(rest))); return;
   }
   if(type === "dupname" || type === "dupisbn"){
-    const rest = res.groups.flatMap(restOf);
-    if(confirm(`කණ්ඩායම් ${res.groups.length}ක අතිරික්ත පොත් ${rest.length}ක් මකන්නද? (සෑම කණ්ඩායමකම වැඩිම දත්ත සහිත එක තබා ගනී)`)) errRun(() => delIds(rest.map(b => b.id))); return;
+    const rest = groups.flatMap(restOf);
+    if(confirm(`කණ්ඩායම් ${groups.length}ක අතිරික්ත පොත් ${rest.length}ක් මකන්නද? (සෑම කණ්ඩායමකම වැඩිම දත්ත සහිත එක තබා ගනී)`)) errRun(() => delIds(rest.map(b => b.id))); return;
   }
   if(type === "space"){
     const list = flat.map(b => { const patch = {}; TEXTF.forEach(k => { if(spaceBad(b, k)) patch[k] = clean(b[k].trim().replace(/\s+/g, " ")); }); return [b.id, patch]; });
     if(confirm(`පොත් ${list.length}ක අමතර හිස් ඉඩ ඉවත් කරන්නද?`)) errRun(() => updList(list));
   }
+}
+
+/* ===== නම් ඒකාබද්ධ කිරීම ===== */
+let mdata = [], mshown = [], msel = new Set();
+async function mergeLoad(){
+  const f = $("mf").value, m = new Map(); $("mlist").textContent = "load කරමින්...";
+  for(let p = 0; ; p++){
+    const {data, error} = await sb.from("books").select(f).order("id").range(p*1000, p*1000 + 999);
+    if(error){ $("mlist").textContent = error.message; return; }
+    data.forEach(r => {
+      const raw = r[f]; if(raw == null || String(raw).trim() === "") return;
+      const vals = f === "subject" ? [...new Set(String(raw).split("/").map(x => x.trim()).filter(Boolean))] : [raw];
+      vals.forEach(v => m.set(v, (m.get(v) || 0) + 1));
+    });
+    if(data.length < 1000) break;
+  }
+  mdata = [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
+  msel = new Set(); mergeRender();
+}
+let mhidden = loadSet("lib_mhidden"), mShowHid = false;
+const mkey = v => $("mf").value + ":" + v;
+function mergeRender(){
+  const q = $("mq").value.trim().toLowerCase(), box = $("mlist"), st = box.scrollTop;
+  const hidN = mdata.filter(([v]) => mhidden.has(mkey(v))).length;
+  mshown = mdata.filter(([v]) => (mShowHid || !mhidden.has(mkey(v))) && (!q || String(v).toLowerCase().includes(q)));
+  box.innerHTML = mshown.slice(0, 300).map(([v, c], i) => `<div class="er" style="${mhidden.has(mkey(v)) ? "opacity:.5" : ""}"><label class="ck" style="flex:1"><input type="checkbox" ${msel.has(v) ? "checked" : ""} onchange="mTog(${i})"><span>${esc(v)}</span> <small style="color:var(--mu)">(${c})</small></label>
+    <span class="row" style="flex-shrink:0"><button class="g" style="padding:2px 8px;font-size:12px" onclick="mUse(${i})">➜ නව නම</button><button class="g" style="padding:2px 8px;font-size:12px" title="ලැයිස්තුවෙන් ඉවත් කරන්න (වෙනස් කිරීම අවශ්‍ය නැත)" onclick="mHide(${i})">${mhidden.has(mkey(v)) ? "↩" : "✕"}</button></span></div>`).join("") || `<div style="color:var(--mu);padding:6px 0">කිසිවක් නැත</div>`;
+  box.scrollTop = st;
+  $("mtg").textContent = mShowHid ? "සැඟවූ ඒවා සඟවන්න" : `සැඟවූ ${hidN}ක් පෙන්වන්න`;
+  $("mmsg").textContent = `නම් ${mshown.length}ක් (තෝරාගත් ${msel.size}ක්)` + (mshown.length > 300 ? " — පළමු 300 පමණක් පෙන්වයි, සෙවුමෙන් පටු කරන්න" : "");
+}
+function mHide(i){ const k = mkey(mshown[i][0]); mhidden.has(k) ? mhidden.delete(k) : mhidden.add(k); saveSet("lib_mhidden", mhidden); mergeRender(); }
+function mToggleHid(){ mShowHid = !mShowHid; mergeRender(); }
+function mTog(i){ const v = mshown[i][0]; msel.has(v) ? msel.delete(v) : msel.add(v); $("mmsg").textContent = `නම් ${mshown.length}ක් (තෝරාගත් ${msel.size}ක්)`; }
+function mUse(i){ $("mto").value = mshown[i][0]; }
+function mSelAll(v){ mshown.slice(0, 300).forEach(([x]) => v ? msel.add(x) : msel.delete(x)); mergeRender(); }
+async function mergeApply(){
+  const f = $("mf").value, to = $("mto").value.trim(), from = [...msel].filter(v => v !== to);
+  if(!to){ alert("නව නම ඇතුළත් කරන්න."); return; }
+  if(!from.length){ alert("වෙනස් කළ යුතු නම් තෝරන්න."); return; }
+  const n = mdata.filter(([v]) => from.includes(v)).reduce((a, [, c]) => a + c, 0);
+  if(!confirm(`තෝරාගත් නම් ${from.length}ක් "${to}" ලෙස වෙනස් කරන්නද? (පොත් ${n}කට බලපායි)`)) return;
+  $("mmsg").textContent = "යාවත්කාලීන කරමින්...";
+  try{
+    if(f === "subject"){
+      const found = new Map();
+      for(const v of from) for(let p = 0; ; p++){
+        const {data, error} = await sb.from("books").select("id,subject").ilike("subject", "%" + likeEsc(v) + "%").order("id").range(p*1000, p*1000 + 999);
+        if(error) throw error; data.forEach(r => found.set(r.id, r.subject)); if(data.length < 1000) break;
+      }
+      const list = [];
+      found.forEach((subj, id) => {
+        const seen = new Set(), out = [];
+        String(subj).split("/").map(x => x.trim()).filter(Boolean).forEach(t => { const nt = from.includes(t) ? to : t; if(!seen.has(nt)){ seen.add(nt); out.push(nt); } });
+        const ns = out.join("/"); if(ns !== subj) list.push([id, {subject:ns}]);
+      });
+      await updList(list);
+    } else {
+      for(const v of from){ const {error} = await sb.from("books").update({[f]:to}).eq(f, v); if(error) throw error; }
+    }
+    toast("වෙනස් කළා ✔"); $("mto").value = ""; refresh(); mergeLoad();
+  } catch(e){ alert("දෝෂයක්: " + (e.message || e)); mergeRender(); }
 }
 
 /* start */
